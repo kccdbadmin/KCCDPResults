@@ -2,5 +2,10 @@
 # Keep the fixture locally next to index.html for ?test=1 mode.
 *.pdf
 
+# Never commit student masterlists (iSAMS/MIS exports) - sensitive student data.
+*.xlsx
+*.xls
+*.csv
+
 # Local dev config
 .claude/

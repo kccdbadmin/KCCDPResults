@@ -75,6 +75,10 @@
 
   /* KPI cards */
   #kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+  #hlCards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+  #hlInsights { margin: 12px 0 4px; padding-left: 20px; }
+  #hlInsights li { margin: 4px 0; font-size: 13px; }
+  #hlWatch h3 { margin: 14px 0 6px; font-size: 13px; color: var(--muted); }
   .kpi {
     background: var(--card); border: 1px solid var(--line); border-radius: 12px;
     padding: 14px 16px;
@@ -135,7 +139,7 @@
     th { position: static; }
     .chart-wrap { height: 240px; }
     .chart-row .chart-wrap { height: 180px; }
-    #kpis { grid-template-columns: repeat(3, 1fr); }
+    #kpis, #hlCards { grid-template-columns: repeat(3, 1fr); }
     a { text-decoration: none; color: inherit; }
     /* never print student names */
     .name-col { display: none !important; }
@@ -153,16 +157,18 @@
 <main>
   <div id="dropzone" class="no-print">
     <h2>Drop the IBIS &ldquo;Results summary&rdquo; PDF here</h2>
-    <p>or click to choose the file</p>
-    <p class="privacy">100% client-side &mdash; the PDF is parsed in your browser and never uploaded anywhere.</p>
+    <p>or click to choose files &mdash; optionally drop the student masterlist (.xlsx / .csv) with it for gender &amp; nationality breakdowns</p>
+    <p class="privacy">100% client-side &mdash; the PDF and masterlist are parsed in your browser and never uploaded anywhere.</p>
     <div id="parseProgress"></div>
-    <input type="file" id="fileInput" accept="application/pdf,.pdf">
+    <input type="file" id="fileInput" accept="application/pdf,.pdf,.xlsx,.xls,.csv" multiple>
   </div>
 
   <div id="dashboard" class="hidden">
     <div id="toolbar" class="no-print">
       <button class="primary" id="btnExcel">Export Excel (.xlsx)</button>
       <button id="btnPrint">Print leadership summary</button>
+      <button id="btnMaster">Load masterlist&hellip;</button>
+      <input type="file" id="masterInput" accept=".xlsx,.xls,.csv" class="hidden">
       <label class="toggle"><input type="checkbox" id="anonToggle"> Anonymize names</label>
       <button id="btnReset">Load another file</button>
       <span id="statusLine"></span>
@@ -178,7 +184,27 @@
       <div id="testResults"></div>
     </section>
 
+    <section class="panel no-print hidden" id="masterPanel">
+      <h2>Masterlist match <span id="masterSub" style="text-transform:none;font-weight:400;color:var(--muted)"></span></h2>
+      <div id="masterCoverage"></div>
+      <div id="masterInfo" style="font-size:12.5px;color:var(--muted);margin:8px 0;"></div>
+      <div class="scroll-y"><table id="matchTable"></table></div>
+    </section>
+
     <div id="kpis"></div>
+
+    <section class="panel" id="hlPanel">
+      <h2>Highlights</h2>
+      <div class="no-print" style="margin-bottom:10px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <label for="worldAvgInput" style="font-size:12.5px; color:var(--muted);">World average total points:</label>
+        <input type="number" id="worldAvgInput" min="0" max="45" step="0.01" placeholder="e.g. 30.32"
+               style="font:inherit; width:100px; padding:5px 8px; border:1px solid var(--line); border-radius:8px;">
+        <span style="font-size:12px; color:var(--muted);">from the IB statistical bulletin &mdash; adds a school-vs-world line here, in print and in Excel</span>
+      </div>
+      <div id="hlCards"></div>
+      <ul id="hlInsights"></ul>
+      <div id="hlWatch"></div>
+    </section>
 
     <section class="panel">
       <h2>Total points distribution <span id="ptsSub" style="text-transform:none;font-weight:400;color:var(--muted)"></span></h2>
@@ -212,6 +238,23 @@
         <div><h3 style="margin:0 0 6px;font-size:13px;color:var(--muted)">Theory of Knowledge (A&ndash;E)</h3>
           <div class="chart-wrap"><canvas id="tokChart"></canvas></div></div>
       </div>
+    </section>
+
+    <section class="panel no-print hidden" id="groupPanel">
+      <h2>Group comparisons</h2>
+      <div style="margin-bottom:10px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+        <select id="groupBy">
+          <option value="gender">Male vs Female</option>
+          <option value="emirati">Emirati vs Non-Emirati</option>
+          <option value="nationality">Nationality (primary)</option>
+        </select>
+        <span style="color:var(--muted); font-size:12.5px;">
+          Groups come from the masterlist. &ldquo;Unknown&rdquo; = candidates not matched to it.
+          The Emirati flag counts any listed nationality; the nationality view uses the first-listed one.
+        </span>
+      </div>
+      <div class="scroll-y"><table id="groupTable"></table></div>
+      <div class="chart-wrap" style="height:260px; margin-top:14px"><canvas id="groupChart"></canvas></div>
     </section>
 
     <section class="panel" id="failPanel">
@@ -282,7 +325,208 @@ const state = {
   anonymize: false, levelFilter: "ALL",
   subjSort: { key: "entries", dir: -1 },
   charts: {},
+  master: null,          // parsed masterlist: { fileName, students, used }
+  groupBy: "gender",
+  worldAvg: null,        // user-entered IB world average total points
 };
+
+/* ================= Student masterlist (Excel/CSV) =================
+   The masterlist is an MIS export (e.g. iSAMS) parsed client-side with
+   SheetJS. Columns are auto-detected by header name; rows are joined to
+   PDF candidates by candidate/personal code when present, otherwise by
+   date of birth + name. DOB alone is never enough (coincidental DOBs
+   across a whole school are common), and every non-exact join is listed
+   in a review table rather than trusted silently. */
+const MASTER_COLS = {
+  code:        ["candidate no", "candidate number", "candidate code", "ib candidate code", "personal code", "ib code", "session number", "candidate session number"],
+  fullName:    ["full name", "student name", "pupil name", "name"],
+  forename:    ["forename", "first name", "given name", "given names", "preferred name"],
+  surname:     ["surname", "last name", "family name"],
+  dob:         ["date of birth", "dob", "birth date", "birthdate"],
+  gender:      ["gender", "sex"],
+  nationality: ["nationality", "nationalities", "citizenship"],
+};
+const EMIRATI_VALUES = new Set(["emirati", "united arab emirates", "uae", "uae national", "emirian"]);
+const MATCH_LABELS = {
+  code:    "Candidate code",
+  exact:   "DOB + full name",
+  dobsur:  "DOB + surname (first name differs)",
+  dobfore: "DOB + first name (surname differs)",
+  name:    "Name only (no DOB to confirm)",
+};
+
+// strip case, accents, spaces, hyphens, apostrophes: "Al Hashmi" === "AlHashmi"
+function normPart(s) {
+  return String(s ?? "").normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z]/g, "");
+}
+function normCode(s) {
+  const v = String(s ?? "").toLowerCase().replace(/\s+/g, "");
+  if (!v) return "";
+  return /^\d+$/.test(v) ? v.replace(/^0+(?=\d)/, "") : v; // "0031" === "31"
+}
+function isoDate(y, m, d) {
+  return `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+const MONTHS3 = { JAN:1, FEB:2, MAR:3, APR:4, MAY:5, JUN:6, JUL:7, AUG:8, SEP:9, OCT:10, NOV:11, DEC:12 };
+// PDF "Birth Date" value, e.g. "04 MAY 2007"
+function pdfDobIso(s) {
+  const m = String(s ?? "").trim().match(/^(\d{1,2})\s+([A-Z]{3})[A-Z]*\s+(\d{4})$/i);
+  return m && MONTHS3[m[2].toUpperCase().slice(0, 3)] ? isoDate(m[3], MONTHS3[m[2].toUpperCase().slice(0, 3)], m[1]) : null;
+}
+// masterlist DOB cell: Excel serial, Date, ISO, day-first "dd/mm/yyyy", or "dd Mon yyyy"
+function cellDobIso(v) {
+  if (v === null || v === undefined || v === "") return null;
+  if (typeof v === "number") {
+    const d = XLSX.SSF.parse_date_code(v);
+    return d ? isoDate(d.y, d.m, d.d) : null;
+  }
+  if (v instanceof Date && !isNaN(v)) return isoDate(v.getFullYear(), v.getMonth() + 1, v.getDate());
+  const s = String(v).trim();
+  let m;
+  if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) return isoDate(m[1], m[2], m[3]);
+  if ((m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})/))) return isoDate(m[3], m[2], m[1]);
+  if ((m = s.match(/^(\d{1,2})\s+([A-Za-z]{3,})\s+(\d{4})$/))) {
+    const mo = MONTHS3[m[2].toUpperCase().slice(0, 3)];
+    return mo ? isoDate(m[3], mo, m[1]) : null;
+  }
+  return null;
+}
+function isEmiratiNat(nat) {
+  return String(nat ?? "").split(/[,;/]/).some(p => EMIRATI_VALUES.has(p.trim().toLowerCase()));
+}
+function normGender(g) {
+  const v = String(g ?? "").trim().toLowerCase();
+  if (["m", "male", "boy"].includes(v)) return "Male";
+  if (["f", "female", "girl"].includes(v)) return "Female";
+  return v ? v[0].toUpperCase() + v.slice(1) : "Unknown";
+}
+
+function detectColumns(headerCells) {
+  const map = {};
+  headerCells.forEach((h, i) => {
+    const norm = String(h ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+    if (!norm) return;
+    for (const [key, aliases] of Object.entries(MASTER_COLS)) {
+      if (map[key] === undefined && aliases.includes(norm)) map[key] = i;
+    }
+  });
+  return map;
+}
+
+function parseMasterlist(buf, fileName) {
+  const wb = XLSX.read(buf, { type: "array" });
+  // pick the sheet + header row with the most recognized columns
+  let best = null;
+  for (const sn of wb.SheetNames) {
+    const aoa = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: null });
+    for (let r = 0; r < Math.min(aoa.length, 15); r++) {
+      const map = detectColumns(aoa[r] || []);
+      const score = Object.keys(map).length;
+      if (score >= 2 && (!best || score > best.score)) best = { sheet: sn, headerRow: r, map, aoa, score };
+    }
+  }
+  if (!best) throw new Error("no recognizable column headers found (need e.g. Name/Surname, Date of Birth, Gender, Nationality).");
+  const { map, aoa, headerRow } = best;
+  if (map.gender === undefined && map.nationality === undefined)
+    throw new Error("no Gender or Nationality column found - nothing to break groups down by.");
+  if (map.code === undefined && map.dob === undefined && map.surname === undefined && map.fullName === undefined)
+    throw new Error("no way to identify students - need a candidate code, date of birth, or name columns.");
+
+  const headers = aoa[headerRow];
+  const students = [];
+  for (let r = headerRow + 1; r < aoa.length; r++) {
+    const row = aoa[r];
+    if (!row || row.every(v => v === null || v === "")) continue;
+    const get = k => (map[k] === undefined ? null : row[map[k]]);
+    const s = {
+      code: normCode(get("code")),
+      fullName: String(get("fullName") ?? "").trim(),
+      forename: String(get("forename") ?? "").trim(),
+      surname: String(get("surname") ?? "").trim(),
+      dob: cellDobIso(get("dob")),
+      gender: get("gender"),
+      nationality: String(get("nationality") ?? "").trim(),
+    };
+    if (s.forename && s.surname) {
+      s.nfirst = normPart(s.forename.split(/\s+/)[0]);
+      s.nsur = normPart(s.surname);
+    } else if (s.fullName) {
+      const tok = s.fullName.split(/\s+/);
+      s.nfirst = normPart(tok[0]);
+      s.nsur = normPart(tok.slice(1).join(" "));
+    } else { s.nfirst = ""; s.nsur = ""; }
+    if (!s.fullName) s.fullName = `${s.forename} ${s.surname}`.trim();
+    if (!s.code && !s.dob && !s.nsur) continue; // nothing to match on
+    students.push(s);
+  }
+  if (!students.length) throw new Error("no student rows found under the header row.");
+
+  const used = Object.entries(map).map(([k, i]) => `${k}: "${headers[i]}"`).join(", ");
+  state.master = { fileName, students, used, hasCode: map.code !== undefined };
+}
+
+/* ---- join masterlist rows to parsed candidates ---- */
+function computeMatches() {
+  if (!state.candidates.length) return;
+  for (const c of state.candidates) {
+    c.match = null; c.gender = "Unknown"; c.emirati = "Unknown"; c.natPrimary = "Unknown";
+  }
+  if (!state.master) return;
+
+  const byCode = new Map(), byDob = new Map(), byName = new Map();
+  for (const s of state.master.students) {
+    if (s.code) (byCode.get(s.code) || byCode.set(s.code, []).get(s.code)).push(s);
+    if (s.dob) (byDob.get(s.dob) || byDob.set(s.dob, []).get(s.dob)).push(s);
+    if (s.nsur && s.nfirst) {
+      const k = s.nsur + "|" + s.nfirst;
+      (byName.get(k) || byName.set(k, []).get(k)).push(s);
+    }
+  }
+
+  for (const c of state.candidates) {
+    const nsur = normPart(c.surname);
+    const nfirst = normPart((c.givenNames || "").split(/\s+/)[0] || "");
+    const dob = pdfDobIso(c.birthDate);
+    let hits = null, method = null, note = "";
+
+    for (const code of [normCode(c.personalCode), normCode(c.candidateNo)]) {
+      if (code && byCode.has(code)) { hits = byCode.get(code); method = "code"; break; }
+    }
+    if (!hits && dob && byDob.has(dob)) {
+      const pool = byDob.get(dob);
+      let h = pool.filter(s => s.nsur === nsur && s.nfirst === nfirst);
+      if (h.length) method = "exact";
+      if (!h.length && nsur) { h = pool.filter(s => s.nsur === nsur); if (h.length) method = "dobsur"; }
+      if (!h.length && nfirst) { h = pool.filter(s => s.nfirst === nfirst); if (h.length) method = "dobfore"; }
+      if (h.length) hits = h;
+    }
+    if (!hits && nsur && nfirst) {
+      const h = byName.get(nsur + "|" + nfirst) || [];
+      if (h.length) {
+        if (!dob || h.every(s => !s.dob)) { hits = h; method = "name"; }
+        else note = `Same name found in masterlist but DOB differs: PDF ${dob} vs ${h.map(s => s.dob || "?").join(", ")} - check for a data-entry error`;
+      }
+    }
+
+    let s = null;
+    if (hits && hits.length) {
+      const attrs = new Set(hits.map(x => normGender(x.gender) + "|" + (isEmiratiNat(x.nationality) ? "E" : "N") + "|" + x.nationality));
+      if (attrs.size > 1) {
+        note = `${hits.length} masterlist rows match with conflicting gender/nationality - excluded from groups`;
+        method = null;
+      } else {
+        s = hits[0];
+        if (hits.length > 1) note = `${hits.length} duplicate masterlist rows (attributes agree)`;
+      }
+    }
+    c.match = { method, note, student: s };
+    if (s) {
+      c.gender = normGender(s.gender);
+      c.emirati = s.nationality ? (isEmiratiNat(s.nationality) ? "Emirati" : "Non-Emirati") : "Unknown";
+      c.natPrimary = s.nationality ? (s.nationality.split(/[,;/]/)[0].trim() || "Unknown") : "Unknown";
+    }
+  }
+}
 
 /* ================= PDF text -> lines =================
    pdf.js gives positioned text items; rebuild visual lines by grouping
@@ -368,7 +612,7 @@ function parsePage(lines, pageNo, current) {
 
     if (!state.session) {
       const m = t.match(/results in the session\s+(.+)$/);
-      if (m) state.session = m.group ? m.group(1) : m[1];
+      if (m) state.session = m[1];
     }
     if (!state.datePrinted && t.startsWith("Date printed:")) {
       state.datePrinted = t.slice("Date printed:".length).trim();
@@ -546,7 +790,7 @@ function subjectSummary() {
 function letterDist(level) {
   const d = { A: 0, B: 0, C: 0, D: 0, E: 0, N: 0 };
   for (const s of state.subjects) {
-    if (s.additional || s.level !== level) continue;
+    if (s.additional || s.level !== level || s.session !== state.session) continue;
     if (d[s.grade] === undefined) continue;
     d[s.grade]++;
   }
@@ -579,8 +823,9 @@ function renderAll() {
     ? state.warnings.map(w => `<li>${esc(w)}</li>`).join("")
     : "<li>No warnings - every page parsed cleanly.</li>";
 
-  renderKpis(); renderPointsChart(); renderSubjectTable();
+  renderKpis(); renderHighlights(); renderPointsChart(); renderSubjectTable();
   renderGradeCharts(); renderFailTable(); renderCandTable();
+  renderMasterPanel(); renderGroupPanel();
 }
 
 function renderKpis() {
@@ -593,6 +838,109 @@ function renderKpis() {
     { v: fmt(k.avgGrade, 2), l: "Average subject grade", d: "current session, HL+SL" },
     { v: k.notAwarded, l: "Not awarded", d: "see panel below" },
   ].map(x => `<div class="kpi"><div class="v">${x.v}</div><div class="l">${x.l}</div><div class="d">${x.d}</div></div>`).join("");
+}
+
+/* ================= Highlights =================
+   "40+" / "30+" follow IB convention: >= 40 / >= 30.
+   Subject stars/concerns use a minimum of 5 entries so tiny subjects
+   don't dominate; group gaps need >= 5 candidates per group. */
+function computeHighlights() {
+  const dip = diplomaTrack();
+  const withPts = dip.filter(c => c.totalPoints !== null);
+  const den = withPts.length;
+  const maxPts = den ? Math.max(...withPts.map(c => c.totalPoints)) : null;
+  const top = maxPts === null ? [] : withPts.filter(c => c.totalPoints === maxPts);
+  const over40 = withPts.filter(c => c.totalPoints >= 40);
+  const over30 = withPts.filter(c => c.totalPoints >= 30);
+
+  const cur = currentSubjects();
+  const sevens = cur.filter(s => s.gradeNumeric === 7).length;
+  const byCand = new Map();
+  for (const s of cur) (byCand.get(s.candidateNo) || byCand.set(s.candidateNo, []).get(s.candidateNo)).push(s.gradeNumeric);
+  const sweeps = state.candidates.filter(c => {
+    const g = byCand.get(c.candidateNo);
+    return g && g.length >= 6 && g.every(x => x === 7);
+  });
+
+  const nearMiss = state.candidates
+    .filter(c => c.result === "Diploma not awarded" && c.totalPoints !== null && c.totalPoints >= 22)
+    .sort((a, b) => b.totalPoints - a.totalPoints);
+
+  const schoolAvg = (() => {
+    const g = cur.map(s => s.gradeNumeric);
+    return g.length ? g.reduce((a, b) => a + b, 0) / g.length : null;
+  })();
+  const bigSubjects = subjectSummary().filter(r => r.entries >= 5 && r.avg !== null);
+  const stars = [...bigSubjects].sort((a, b) => b.avg - a.avg).slice(0, 3);
+  const concerns = bigSubjects
+    .filter(r => (schoolAvg !== null && r.avg <= schoolAvg - 0.5) || (r.pctLow !== null && r.pctLow >= 0.2))
+    .sort((a, b) => a.avg - b.avg).slice(0, 3);
+
+  const gaps = [];
+  if (state.master) {
+    for (const [mode, pair] of [["gender", ["Male", "Female"]], ["emirati", ["Emirati", "Non-Emirati"]]]) {
+      const { names, keyOf } = groupsFor(mode);
+      const rs = groupMetrics(names.filter(n => pair.includes(n)), keyOf).filter(r => r.passDen >= 5);
+      if (rs.length !== 2) continue;
+      const [a, b] = rs;
+      if (a.passRate !== null && b.passRate !== null && Math.abs(a.passRate - b.passRate) >= 0.05) {
+        const hi = a.passRate > b.passRate ? a : b, lo = hi === a ? b : a;
+        gaps.push(`${hi.group} pass rate ${pct(hi.passRate)} (n=${hi.passDen}) vs ${lo.group} ${pct(lo.passRate)} (n=${lo.passDen})`);
+      }
+      if (a.avgPts !== null && b.avgPts !== null && Math.abs(a.avgPts - b.avgPts) >= 2) {
+        const hi = a.avgPts > b.avgPts ? a : b, lo = hi === a ? b : a;
+        gaps.push(`${hi.group} average points ${hi.avgPts.toFixed(1)} (n=${hi.dip}) vs ${lo.group} ${lo.avgPts.toFixed(1)} (n=${lo.dip})`);
+      }
+    }
+  }
+  const avgPts = den ? withPts.reduce((a, c) => a + c.totalPoints, 0) / den : null;
+  return { den, maxPts, avgPts, top, over40, over30, sevens, entries: cur.length, sweeps, nearMiss, stars, concerns, gaps };
+}
+
+function renderHighlights() {
+  const H = computeHighlights();
+  const share = n => H.den ? `${(100 * n / H.den).toFixed(0)}% of ${H.den} diploma-track` : "";
+  const topNames = H.top.map(candLabel);
+  const topLabel = topNames.length > 3 ? topNames.slice(0, 3).join(", ") + ` +${topNames.length - 3} more` : topNames.join(", ");
+  $("hlCards").innerHTML = [
+    { v: H.maxPts ?? "–", l: H.maxPts === 45 ? "Perfect score! 🏆" : "Top score", d: topLabel || "" },
+    { v: H.over40.length, l: "Students at 40+", d: share(H.over40.length) },
+    { v: H.over30.length, l: "Students at 30+", d: share(H.over30.length) },
+    { v: H.sevens, l: "Grade 7s (HL+SL)", d: H.entries ? `${(100 * H.sevens / H.entries).toFixed(1)}% of graded entries` : "" },
+  ].map(x => `<div class="kpi"><div class="v">${x.v}</div><div class="l">${esc(x.l)}</div><div class="d">${esc(x.d)}</div></div>`).join("");
+
+  const li = [];
+  if (state.worldAvg !== null && H.avgPts !== null) {
+    const d = H.avgPts - state.worldAvg;
+    li.push(`<b>World comparison:</b> school average ${H.avgPts.toFixed(1)} points vs world average ${state.worldAvg} ` +
+      `&mdash; ${Math.abs(d).toFixed(1)} points ${d >= 0 ? "above" : "below"} world.`);
+  }
+  if (H.sweeps.length)
+    li.push(`🎯 <b>${H.sweeps.length} student(s) with straight 7s</b> in all six subjects: ${esc(H.sweeps.map(candLabel).join(", "))}`);
+  if (H.stars.length)
+    li.push(`<b>Strongest subjects</b> (≥5 entries): ` +
+      H.stars.map(r => `${esc(r.subject)} ${r.level} (avg ${r.avg.toFixed(2)}, ${r.entries} entries)`).join(" · "));
+  li.push(H.concerns.length
+    ? `<b>Subjects to review</b> (avg ≥0.5 below school average or ≥20% at grades 1–3, ≥5 entries): ` +
+      H.concerns.map(r => `${esc(r.subject)} ${r.level} (avg ${r.avg.toFixed(2)}, ${pct(r.pctLow)} at ≤3)`).join(" · ")
+    : `<b>Subjects to review:</b> none flagged (all ≥5-entry subjects within 0.5 of school average and under 20% low grades).`);
+  if (state.master)
+    li.push(H.gaps.length
+      ? H.gaps.map(g => `<b>Group gap:</b> ${esc(g)}`).join("</li><li>")
+      : `<b>Group gaps:</b> none notable (thresholds: 5 pp pass rate or 2 avg points, groups with ≥5 candidates).`);
+  $("hlInsights").innerHTML = li.map(x => `<li>${x}</li>`).join("");
+
+  if (H.nearMiss.length) {
+    let html = `<h3>Remark watchlist — missed the diploma by ≤2 points, or failed a condition at 24+ (consider re-marks / EUR)</h3>` +
+      `<table><thead><tr><th>#</th><th>Name</th><th class="num">Total</th><th>EE</th><th>TOK</th><th>Reason</th></tr></thead><tbody>`;
+    for (const c of H.nearMiss) {
+      html += `<tr><td>${esc(c.candidateNo)}</td><td>${esc(candLabel(c))}</td><td class="num">${c.totalPoints}</td>` +
+        `<td>${esc(c.eeGrade || "–")}</td><td>${esc(c.tokGrade || "–")}</td><td>${esc(c.failReason || "–")}</td></tr>`;
+    }
+    $("hlWatch").innerHTML = html + "</tbody></table>";
+  } else {
+    $("hlWatch").innerHTML = "";
+  }
 }
 
 function makeChart(id, cfg) {
@@ -705,7 +1053,8 @@ function renderFailTable() {
 function renderCandTable() {
   const q = ($("candSearch").value || "").toLowerCase();
   const rows = state.candidates.filter(c =>
-    !q || (c.name || "").toLowerCase().includes(q) || (c.candidateNo || "").includes(q));
+    !q || (c.name || "").toLowerCase().includes(q) || (c.candidateNo || "").includes(q) ||
+    (c.personalCode || "").toLowerCase().includes(q));
   let html = `<thead><tr><th>#</th><th>Name</th><th>Category</th><th class="num">HL</th><th class="num">SL</th>` +
     `<th>EE</th><th>TOK</th><th class="num">EE/TOK pts</th><th class="num">Total</th><th>Result</th><th>CAS</th></tr></thead><tbody>`;
   for (const c of rows) {
@@ -718,6 +1067,143 @@ function renderCandTable() {
       `<td>${c.casSatisfied ? "✓" : (c.casRaw ? "✗" : "–")}</td></tr>`;
   }
   $("candTable").innerHTML = html + "</tbody>";
+}
+
+/* ================= Masterlist panels ================= */
+const GROUP_COLORS = ["#14557b", "#c05a2e", "#1f7a4d", "#8a6d1a", "#6da3c0", "#b3372f", "#4d9963", "#d99a37"];
+
+function groupsFor(mode) {
+  const raw = c => (mode === "gender" ? c.gender : mode === "emirati" ? c.emirati : c.natPrimary) || "Unknown";
+  if (mode === "nationality") {
+    const counts = new Map();
+    for (const c of state.candidates) { const k = raw(c); if (k !== "Unknown") counts.set(k, (counts.get(k) || 0) + 1); }
+    const top = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 7).map(([k]) => k);
+    const names = [...top];
+    if ([...counts.keys()].some(k => !top.includes(k))) names.push("Other");
+    if (state.candidates.some(c => raw(c) === "Unknown")) names.push("Unknown");
+    return { names, keyOf: c => { const k = raw(c); return k === "Unknown" ? "Unknown" : (top.includes(k) ? k : "Other"); } };
+  }
+  const fixed = mode === "gender" ? ["Male", "Female"] : ["Emirati", "Non-Emirati"];
+  const present = new Set(state.candidates.map(raw));
+  const names = fixed.filter(n => present.has(n));
+  for (const p of present) if (!names.includes(p) && p !== "Unknown") names.push(p);
+  if (present.has("Unknown")) names.push("Unknown");
+  return { names, keyOf: raw };
+}
+
+function groupMetrics(names, keyOf) {
+  const subj = currentSubjects();
+  return names.map(g => {
+    const cands = state.candidates.filter(c => keyOf(c) === g);
+    const nos = new Set(cands.map(c => c.candidateNo));
+    const dip = cands.filter(c => c.category !== "COURSE");
+    const withResult = dip.filter(c => KNOWN_RESULTS.includes(c.result));
+    const awarded = withResult.filter(c => c.result === "Diploma awarded" || c.result === "Bilingual Diploma awarded");
+    const withPts = dip.filter(c => c.totalPoints !== null);
+    const grades = subj.filter(s => nos.has(s.candidateNo)).map(s => s.gradeNumeric);
+    return {
+      group: g, n: cands.length, dip: dip.length,
+      passRate: withResult.length ? awarded.length / withResult.length : null,
+      passN: awarded.length, passDen: withResult.length,
+      avgPts: withPts.length ? withPts.reduce((a, c) => a + c.totalPoints, 0) / withPts.length : null,
+      avgGrade: grades.length ? grades.reduce((a, b) => a + b, 0) / grades.length : null,
+      over40: withPts.filter(c => c.totalPoints >= 40).length,
+      bilingual: withResult.filter(c => c.result === "Bilingual Diploma awarded").length,
+      notAwarded: withResult.filter(c => c.result === "Diploma not awarded").length,
+      pts: withPts.map(c => c.totalPoints),
+    };
+  });
+}
+
+function renderGroupPanel() {
+  const panel = $("groupPanel");
+  if (!state.master || !state.candidates.length) { panel.classList.add("hidden"); return; }
+  panel.classList.remove("hidden");
+  $("groupBy").value = state.groupBy;
+  const { names, keyOf } = groupsFor(state.groupBy);
+  const rows = groupMetrics(names, keyOf);
+
+  let html = `<thead><tr><th>Group</th><th class="num">Candidates</th><th class="num">Diploma-track</th>` +
+    `<th class="num">Pass rate</th><th class="num">Avg points</th><th class="num">Avg grade</th>` +
+    `<th class="num">40+</th><th class="num">Bilingual</th><th class="num">Not awarded</th></tr></thead><tbody>`;
+  for (const r of rows) {
+    html += `<tr><td>${esc(r.group)}</td><td class="num">${r.n}</td><td class="num">${r.dip}</td>` +
+      `<td class="num">${r.passRate === null ? "–" : pct(r.passRate) + ` (${r.passN}/${r.passDen})`}</td>` +
+      `<td class="num">${fmt(r.avgPts, 1)}</td><td class="num">${fmt(r.avgGrade, 2)}</td>` +
+      `<td class="num">${r.over40}</td><td class="num">${r.bilingual}</td><td class="num">${r.notAwarded}</td></tr>`;
+  }
+  $("groupTable").innerHTML = html + "</tbody>";
+
+  const all = rows.flatMap(r => r.pts);
+  if (!all.length) {
+    if (state.charts.groupChart) { state.charts.groupChart.destroy(); delete state.charts.groupChart; }
+    return;
+  }
+  const lo = Math.min(...all), hi = Math.max(...all);
+  const labels = []; for (let p = lo; p <= hi; p++) labels.push(p);
+  const color = (g, i) => g === "Unknown" ? "#8a8a8a" : GROUP_COLORS[i % GROUP_COLORS.length];
+  makeChart("groupChart", {
+    type: "bar",
+    data: {
+      labels,
+      datasets: rows.filter(r => r.pts.length).map((r, i) => ({
+        label: `${r.group} (n=${r.pts.length})`, backgroundColor: color(r.group, i),
+        data: labels.map(p => r.pts.filter(x => x === p).length),
+      })),
+    },
+    options: {
+      plugins: { legend: { position: "top" } },
+      scales: { y: { beginAtZero: true, ticks: { precision: 0 } }, x: { title: { display: true, text: "Total points (diploma-track)" } } },
+    },
+  });
+}
+
+function renderMasterPanel() {
+  const panel = $("masterPanel");
+  if (!state.master || !state.candidates.length) { panel.classList.add("hidden"); return; }
+  panel.classList.remove("hidden");
+  const M = state.master;
+  const total = state.candidates.length;
+  const matched = state.candidates.filter(c => c.match && c.match.student);
+  const exact = matched.filter(c => ["code", "exact"].includes(c.match.method));
+  const review = matched.filter(c => !["code", "exact"].includes(c.match.method));
+  const unmatched = state.candidates.filter(c => !c.match || !c.match.student);
+
+  $("masterSub").textContent = ` — ${M.fileName} · ${M.students.length} students · ${matched.length}/${total} candidates matched`;
+
+  const cov = $("masterCoverage");
+  const ratio = total ? matched.length / total : 0;
+  if (ratio < 0.5) {
+    cov.innerHTML = `<div style="background:#f7e3e1;border:1px solid #e0b4af;border-radius:8px;padding:10px 12px;color:var(--bad);font-weight:600;">
+      Only ${matched.length} of ${total} candidates were found in this masterlist &mdash; it probably does not cover this cohort
+      (different campus, year group, or an outdated export). Group breakdowns will show mostly &ldquo;Unknown&rdquo;.</div>`;
+  } else if (ratio < 0.9) {
+    cov.innerHTML = `<div style="background:var(--warn-bg);border:1px solid #e8d9a0;border-radius:8px;padding:10px 12px;color:#8a6d1a;">
+      ${unmatched.length} candidate(s) not found in the masterlist &mdash; check the review table below so group results are not skewed.</div>`;
+  } else {
+    cov.innerHTML = `<div style="color:var(--accent-2);font-weight:600;">${matched.length} of ${total} matched (${exact.length} exact, ${review.length} to review).</div>`;
+  }
+
+  $("masterInfo").innerHTML =
+    `Columns used &mdash; ${esc(M.used)}` +
+    (M.hasCode ? "" : ` &nbsp;·&nbsp; <b>Tip:</b> add the IB candidate / personal code to future exports for exact matching`) +
+    ` &nbsp;·&nbsp; <button id="btnMasterClear" style="font-size:12px;padding:3px 10px;">Remove masterlist</button>`;
+  $("btnMasterClear").onclick = () => { state.master = null; computeMatches(); renderAll(); };
+
+  const flagged = [...review.map(c => ["check", c]), ...unmatched.map(c => ["unmatched", c])];
+  let html = `<thead><tr><th>#</th><th class="name-col">Name (PDF)</th><th>Birth date</th><th>Status</th>` +
+    `<th>Match</th><th class="name-col">Masterlist row</th><th>Gender</th><th>Nationality</th><th>Note</th></tr></thead><tbody>`;
+  for (const [kind, c] of flagged) {
+    const s = c.match && c.match.student;
+    html += `<tr><td>${esc(c.candidateNo)}</td><td class="name-col">${esc(candLabel(c))}</td><td>${esc(c.birthDate || "–")}</td>` +
+      `<td><span class="pill ${kind === "unmatched" ? "bad" : "mid"}">${kind === "unmatched" ? "unmatched" : "check"}</span></td>` +
+      `<td>${esc(c.match && c.match.method ? MATCH_LABELS[c.match.method] : "–")}</td>` +
+      `<td class="name-col">${esc(s ? (state.anonymize ? "(hidden)" : `${s.fullName}${s.dob ? " · " + s.dob : ""}`) : "–")}</td>` +
+      `<td>${esc(s ? normGender(s.gender) : "–")}</td><td>${esc(s ? (s.nationality || "–") : "–")}</td>` +
+      `<td>${esc((c.match && c.match.note) || "")}</td></tr>`;
+  }
+  if (!flagged.length) html += `<tr><td colspan="9">All candidates matched exactly (candidate code or DOB + full name) 🎉</td></tr>`;
+  $("matchTable").innerHTML = html + "</tbody>";
 }
 
 /* ================= Excel export ================= */
@@ -736,13 +1222,44 @@ function exportExcel() {
     XLSX.utils.book_append_sheet(wb, ws, name);
   };
 
+  const wm = !!state.master;
+  const matchLabel = c => c.match && c.match.student
+    ? MATCH_LABELS[c.match.method] || "Matched" : "Unmatched";
   sheet("Candidates",
     ["Candidate No", "Personal Code", "Name", "Surname", "Given Names", "Category", "Birth Date",
      "EE Subject", "EE Grade", "TOK Grade", "EE/TOK Points", "Total Points", "Result", "CAS Satisfied",
-     "Fail Reason", "Subjects", "HL", "SL"],
+     "Fail Reason", "Subjects", "HL", "SL",
+     ...(wm ? ["Gender", "Nationality", "Emirati", "Masterlist Match"] : [])],
     state.candidates.map(c => [c.candidateNo, c.personalCode, c.name, c.surname, c.givenNames, c.category,
       c.birthDate, c.eeSubject, c.eeGrade, c.tokGrade, c.eeTokPoints, c.totalPoints, c.result,
-      c.casSatisfied ? "Yes" : "No", c.failReason, c.subjectCount, c.hlCount, c.slCount]));
+      c.casSatisfied ? "Yes" : "No", c.failReason, c.subjectCount, c.hlCount, c.slCount,
+      ...(wm ? [c.gender, c.match && c.match.student ? c.match.student.nationality : "", c.emirati, matchLabel(c)] : [])]));
+
+  if (wm) {
+    const gRows = [];
+    for (const [mode, label] of [["gender", "Gender"], ["emirati", "Emirati"], ["nationality", "Nationality (primary)"]]) {
+      const { names, keyOf } = groupsFor(mode);
+      for (const r of groupMetrics(names, keyOf)) {
+        gRows.push([label, r.group, r.n, r.dip,
+          r.passRate === null ? "" : +(100 * r.passRate).toFixed(1),
+          r.avgPts === null ? "" : +r.avgPts.toFixed(2),
+          r.avgGrade === null ? "" : +r.avgGrade.toFixed(2),
+          r.over40, r.bilingual, r.notAwarded]);
+      }
+    }
+    sheet("Group Comparison",
+      ["Grouping", "Group", "Candidates", "Diploma-track", "Pass rate %", "Avg points", "Avg grade", "40+", "Bilingual", "Not awarded"],
+      gRows);
+
+    sheet("Match Review",
+      ["Candidate No", "Name", "Birth Date", "Match", "Masterlist Name", "Masterlist DOB", "Gender", "Nationality", "Emirati", "Note"],
+      state.candidates.map(c => {
+        const s = c.match && c.match.student;
+        return [c.candidateNo, c.name, c.birthDate, matchLabel(c),
+          s ? s.fullName : "", s ? s.dob : "", c.gender, s ? s.nationality : "", c.emirati,
+          (c.match && c.match.note) || ""];
+      }));
+  }
 
   sheet("Subjects",
     ["Candidate No", "Name", "Session", "Subject (raw)", "Subject", "Level", "Language", "Grade", "Grade (numeric)", "Additional"],
@@ -774,6 +1291,33 @@ function exportExcel() {
     ["Candidates at 40+", k.over40],
     ["Average subject grade", k.avgGrade === null ? "" : +k.avgGrade.toFixed(2)],
     ["Parse warnings", state.warnings.length],
+  ], false);
+
+  const H = computeHighlights();
+  sheet("Highlights", ["Highlight", "Detail"], [
+    ["Top score", H.maxPts ?? ""],
+    ["Top performer(s)", H.top.map(c => c.name).join("; ")],
+    ["Students at 40+ points", H.over40.length],
+    ["Students at 30+ points", H.over30.length],
+    ["Diploma-track candidates with points", H.den],
+    ["Grade 7s awarded (current session HL+SL)", H.sevens],
+    ["Students with 7 in all six subjects", H.sweeps.map(c => c.name).join("; ") || "None"],
+    ...H.stars.map((r, i) => [`Strongest subject ${i + 1} (>=5 entries)`,
+      `${r.subject} ${r.level} (avg ${r.avg.toFixed(2)}, ${r.entries} entries)`]),
+    ...(H.concerns.length
+      ? H.concerns.map((r, i) => [`Subject to review ${i + 1}`,
+          `${r.subject} ${r.level} (avg ${r.avg.toFixed(2)}, ${(100 * r.pctLow).toFixed(0)}% at grades 1-3)`])
+      : [["Subjects to review", "None flagged"]]),
+    ...(state.master
+      ? (H.gaps.length ? H.gaps.map(g => ["Group gap", g]) : [["Group gaps", "None notable"]])
+      : []),
+    ...(state.worldAvg !== null && H.avgPts !== null
+      ? [["World average points (entered)", state.worldAvg],
+         ["School vs world", (H.avgPts - state.worldAvg >= 0 ? "+" : "") + (H.avgPts - state.worldAvg).toFixed(2)]]
+      : []),
+    ["", ""],
+    ["Remark watchlist", "Missed by <=2 points or failed a condition at 24+"],
+    ...H.nearMiss.map(c => [`${c.candidateNo} - ${c.name}`, `${c.totalPoints} pts - ${c.failReason || ""}`]),
   ], false);
 
   const fname = `IB_Results_${(state.session || "session").replace(/\s+/g, "_")}.xlsx`;
@@ -821,6 +1365,7 @@ async function handleFile(file) {
   try {
     const buf = await file.arrayBuffer();
     await parsePdf(new Uint8Array(buf), file.name);
+    computeMatches();
     $("dropzone").classList.add("hidden");
     $("dashboard").classList.remove("hidden");
     $("testPanel").classList.add("hidden");
@@ -831,22 +1376,55 @@ async function handleFile(file) {
   }
 }
 
+async function handleMasterFile(file) {
+  if (!file) return;
+  try {
+    const buf = new Uint8Array(await file.arrayBuffer());
+    parseMasterlist(buf, file.name);
+    if (state.candidates.length) { computeMatches(); renderAll(); }
+    else showProgress(`Masterlist "${file.name}" loaded (${state.master.students.length} students). Now drop the results PDF.`);
+  } catch (err) {
+    console.error(err);
+    const msg = `Could not use masterlist "${file.name}": ${err.message}`;
+    if ($("dashboard").classList.contains("hidden")) showProgress(msg);
+    else $("statusLine").textContent = msg;
+  }
+}
+
+async function handleFiles(fileList) {
+  const files = [...(fileList || [])];
+  const sheetF = files.find(f => /\.(xlsx|xls|csv)$/i.test(f.name));
+  const pdfF = files.find(f => /\.pdf$/i.test(f.name) || f.type === "application/pdf");
+  if (sheetF) await handleMasterFile(sheetF);   // masterlist first so the PDF parse can join immediately
+  if (pdfF) await handleFile(pdfF);
+  if (!sheetF && !pdfF && files.length) showProgress("Unsupported file type - drop the results PDF and/or an Excel/CSV masterlist.");
+}
+
 const dz = $("dropzone");
 dz.addEventListener("click", () => $("fileInput").click());
-$("fileInput").addEventListener("change", e => handleFile(e.target.files[0]));
+$("fileInput").addEventListener("change", e => { handleFiles(e.target.files); e.target.value = ""; });
 ["dragover", "dragenter"].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add("drag"); }));
 ["dragleave", "drop"].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove("drag"); }));
-dz.addEventListener("drop", e => handleFile(e.dataTransfer.files[0]));
+dz.addEventListener("drop", e => handleFiles(e.dataTransfer.files));
 
 $("btnExcel").addEventListener("click", exportExcel);
 $("btnPrint").addEventListener("click", () => window.print());
+$("btnMaster").addEventListener("click", () => $("masterInput").click());
+$("masterInput").addEventListener("change", e => { handleMasterFile(e.target.files[0]); e.target.value = ""; });
 $("btnReset").addEventListener("click", () => {
   $("dashboard").classList.add("hidden");
   $("dropzone").classList.remove("hidden");
   $("fileInput").value = "";
-  showProgress("");
+  showProgress(state.master
+    ? `Masterlist "${state.master.fileName}" is still loaded and will be matched to the next PDF.` : "");
 });
-$("anonToggle").addEventListener("change", e => { state.anonymize = e.target.checked; renderFailTable(); renderCandTable(); });
+$("anonToggle").addEventListener("change", e => { state.anonymize = e.target.checked; renderHighlights(); renderFailTable(); renderCandTable(); renderMasterPanel(); });
+$("groupBy").addEventListener("change", e => { state.groupBy = e.target.value; renderGroupPanel(); });
+$("worldAvgInput").addEventListener("input", e => {
+  const v = parseFloat(e.target.value);
+  state.worldAvg = Number.isFinite(v) && v >= 0 && v <= 45 ? v : null;
+  renderHighlights();
+});
 $("levelFilter").addEventListener("change", e => { state.levelFilter = e.target.value; renderSubjectTable(); });
 $("candSearch").addEventListener("input", renderCandTable);
 $("warnPanel").classList.add("hidden");
@@ -867,6 +1445,7 @@ window.addEventListener("beforeprint", () => { for (const c of Object.values(sta
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const buf = await resp.arrayBuffer();
     await parsePdf(new Uint8Array(buf), fixture);
+    computeMatches();
     $("dropzone").classList.add("hidden");
     $("dashboard").classList.remove("hidden");
     renderAll();

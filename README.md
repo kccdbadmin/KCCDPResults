@@ -15,6 +15,13 @@ open `index.html` straight from disk.
 2. Drop the IBIS Results summary PDF (one candidate per page, Oracle Reports format).
 3. Review the dashboard:
    - KPI cards — pass rate, average points, highest score, 40+ scorers, bilingual diplomas, average subject grade
+   - Highlights — top performer(s), 40+/30+ counts (IB convention: ≥40 / ≥30), grade-7 tally
+     and straight-7 students, strongest subjects and subjects to review (≥5 entries),
+     group-gap callouts (with masterlist), and a **remark watchlist** of candidates who
+     missed the diploma by ≤2 points or failed a condition at 24+ — the enquiry-upon-results
+     shortlist. Names follow the Anonymize toggle everywhere, including print.
+     Optionally enter the world average total points (IB statistical bulletin) for a
+     school-vs-world comparison line (dashboard, print, Excel; not stored between sessions).
    - Total points distribution with mean marker
    - Subject performance table (sortable, HL/SL filter, grade mini-bars)
    - Grade distributions (1–7 by level, plus EE and TOK letter grades)
@@ -25,6 +32,39 @@ open `index.html` straight from disk.
    `Subject Summary`, `Points Distribution`, and `Summary` sheets.
 6. **Print leadership summary** — a print stylesheet turns the dashboard into a ~2-page
    A4 handout (student names are never printed).
+
+## Student masterlist (gender / nationality breakdowns)
+
+Drop an MIS export (e.g. iSAMS, `.xlsx`/`.csv`) alongside the PDF — together in the
+dropzone or later via **Load masterlist…** — to attach demographics to candidates and
+unlock the **Group comparisons** panel (Male vs Female, Emirati vs Non-Emirati,
+nationality) plus `Group Comparison` and `Match Review` sheets in the Excel export.
+The masterlist is parsed client-side too; nothing is uploaded or stored.
+
+Columns are auto-detected by header name (`Full Name`/`Forename`/`Surname`,
+`Date of Birth`, `Gender`, `Nationality`, and optionally an IB
+`Candidate No`/`Personal Code` column). Rows are joined to candidates by, in order:
+
+1. **Candidate/personal code** — exact (add this column to future exports for zero-risk joins);
+2. **DOB + surname + first given name** — names normalized for case, accents, spacing
+   and hyphens (`Al Hashmi` = `AlHashmi`);
+3. **DOB + surname** or **DOB + first name** alone, and **name-only** (when the
+   masterlist has no DOB) — flagged for review, never trusted silently.
+
+DOB alone is never sufficient, and a same-name row with a different DOB is reported,
+not matched. Every non-exact join and every unmatched candidate is listed in the
+**Masterlist match** review panel; unmatched candidates appear as "Unknown" in group
+charts so nothing silently disappears. If fewer than half the candidates match, a
+prominent warning flags that the masterlist probably doesn't cover the cohort
+(wrong campus / year / stale export).
+
+"Emirati" is derived from the Nationality column: a student counts as Emirati if
+*any* listed nationality (comma-separated) is `Emirati` / `United Arab Emirates` /
+`UAE`; blank nationality becomes "Unknown". The nationality view groups by the
+first-listed (primary) nationality, top 7 + Other.
+
+Masterlists are **never committed** (`*.xlsx`/`*.csv` are gitignored) and never
+persisted by the app — load the file each session.
 
 ## Format notes
 
