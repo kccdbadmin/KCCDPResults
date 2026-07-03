@@ -20,8 +20,15 @@ open `index.html` straight from disk.
      group-gap callouts (with masterlist), and a **remark watchlist** of candidates who
      missed the diploma by ≤2 points or failed a condition at 24+ — the enquiry-upon-results
      shortlist. Names follow the Anonymize toggle everywhere, including print.
-     Optionally enter the world average total points (IB statistical bulletin) for a
-     school-vs-world comparison line (dashboard, print, Excel; not stored between sessions).
+     A world-average selector compares the school against the official IB mean total
+     points: figures for May 2021–2025 are embedded from the IB's *DP and CP Final
+     Statistical Bulletin – May 2025* (ibo.org, p. 8, published to 1 dp), auto-selected
+     to match the parsed session, drawn as a second marker on the points-distribution
+     chart with a source footnote below it (dashboard, print, Excel). A Custom… option
+     accepts a manual value (labelled as unofficial). Runtime auto-fetch from ibo.org is
+     not possible from a static page (no API/CORS; the site also blocks bots), so new
+     sessions are added as one line in `WORLD_AVERAGES` in `index.html` when the next
+     bulletin is published.
    - Total points distribution with mean marker
    - Subject performance table (sortable, HL/SL filter, grade mini-bars)
    - Grade distributions (1–7 by level, plus EE and TOK letter grades)

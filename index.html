@@ -196,10 +196,11 @@
     <section class="panel" id="hlPanel">
       <h2>Highlights</h2>
       <div class="no-print" style="margin-bottom:10px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-        <label for="worldAvgInput" style="font-size:12.5px; color:var(--muted);">World average total points:</label>
-        <input type="number" id="worldAvgInput" min="0" max="45" step="0.01" placeholder="e.g. 30.32"
+        <label for="worldAvgSelect" style="font-size:12.5px; color:var(--muted);">World average total points:</label>
+        <select id="worldAvgSelect"></select>
+        <input type="number" id="worldAvgInput" min="0" max="45" step="0.01" placeholder="e.g. 30.32" class="hidden"
                style="font:inherit; width:100px; padding:5px 8px; border:1px solid var(--line); border-radius:8px;">
-        <span style="font-size:12px; color:var(--muted);">from the IB statistical bulletin &mdash; adds a school-vs-world line here, in print and in Excel</span>
+        <span style="font-size:12px; color:var(--muted);">official IB bulletin figures auto-fill for the detected session; choose Custom&hellip; to enter your own</span>
       </div>
       <div id="hlCards"></div>
       <ul id="hlInsights"></ul>
@@ -209,6 +210,7 @@
     <section class="panel">
       <h2>Total points distribution <span id="ptsSub" style="text-transform:none;font-weight:400;color:var(--muted)"></span></h2>
       <div class="chart-wrap"><canvas id="pointsChart"></canvas></div>
+      <div id="worldFootnote" style="font-size:11.5px; color:var(--muted); margin-top:6px;"></div>
     </section>
 
     <section class="panel" id="subjPanel">
@@ -327,8 +329,41 @@ const state = {
   charts: {},
   master: null,          // parsed masterlist: { fileName, students, used }
   groupBy: "gender",
-  worldAvg: null,        // user-entered IB world average total points
+  worldAvg: null,        // IB world average total points in use (official or custom)
+  worldAvgMode: null,    // "official" | "custom" | null
+  worldAvgSession: null, // session key into WORLD_AVERAGES when mode === "official"
 };
+
+/* ================= IB world averages (official) =================
+   Mean total points per May session, transcribed from the IB's own
+   "DP and CP Final Statistical Bulletin - May 2025" (ibo.org), p. 8,
+   "Mean total points" - the IB publishes these to 1 decimal place.
+   A static page cannot fetch ibo.org at runtime (no API, no CORS),
+   so the figures are embedded and cited; add a line per new bulletin. */
+const WORLD_AVERAGES = {
+  "MAY 2025": 30.6,
+  "MAY 2024": 30.3,
+  "MAY 2023": 30.2,
+  "MAY 2022": 32.0,
+  "MAY 2021": 33.0,
+};
+const WORLD_SOURCE = {
+  cite: 'International Baccalaureate Organization, "DP and CP Final Statistical Bulletin - May 2025", p. 8, "Mean total points" (published to 1 decimal place)',
+  url: "https://ibo.org/globalassets/new-structure/about-the-ib/pdfs/dpcp-final-statistical-bulletin-may-2025_en.pdf",
+  accessed: "4 July 2026",
+};
+const sessionTitle = s => String(s || "").toLowerCase().replace(/^\w/, c => c.toUpperCase());
+// default to the official figure for the parsed session (never overrides a custom entry)
+function autoWorldAvg() {
+  if (state.worldAvgMode === "custom") return;
+  if (WORLD_AVERAGES[state.session] !== undefined) {
+    state.worldAvgMode = "official";
+    state.worldAvgSession = state.session;
+    state.worldAvg = WORLD_AVERAGES[state.session];
+  } else {
+    state.worldAvgMode = null; state.worldAvgSession = null; state.worldAvg = null;
+  }
+}
 
 /* ================= Student masterlist (Excel/CSV) =================
    The masterlist is an MIS export (e.g. iSAMS) parsed client-side with
@@ -909,11 +944,18 @@ function renderHighlights() {
     { v: H.sevens, l: "Grade 7s (HL+SL)", d: H.entries ? `${(100 * H.sevens / H.entries).toFixed(1)}% of graded entries` : "" },
   ].map(x => `<div class="kpi"><div class="v">${x.v}</div><div class="l">${esc(x.l)}</div><div class="d">${esc(x.d)}</div></div>`).join("");
 
+  const sel = $("worldAvgSelect");
+  sel.value = state.worldAvgMode === "custom" ? "custom" : (state.worldAvgSession || "");
+  $("worldAvgInput").classList.toggle("hidden", state.worldAvgMode !== "custom");
+
   const li = [];
   if (state.worldAvg !== null && H.avgPts !== null) {
     const d = H.avgPts - state.worldAvg;
+    const tag = state.worldAvgMode === "official"
+      ? ` (official IB figure for ${esc(sessionTitle(state.worldAvgSession))}; source cited under the distribution chart)`
+      : ` (entered manually)`;
     li.push(`<b>World comparison:</b> school average ${H.avgPts.toFixed(1)} points vs world average ${state.worldAvg} ` +
-      `&mdash; ${Math.abs(d).toFixed(1)} points ${d >= 0 ? "above" : "below"} world.`);
+      `&mdash; ${Math.abs(d).toFixed(1)} points ${d >= 0 ? "above" : "below"} world${tag}.`);
   }
   if (H.sweeps.length)
     li.push(`🎯 <b>${H.sweeps.length} student(s) with straight 7s</b> in all six subjects: ${esc(H.sweeps.map(candLabel).join(", "))}`);
@@ -952,17 +994,23 @@ function makeChart(id, cfg) {
 const meanLinePlugin = {
   id: "meanLine",
   afterDatasetsDraw(chart, _args, opts) {
-    if (opts.mean === null || opts.mean === undefined) return;
-    const xs = chart.scales.x, ys = chart.scales.y;
-    const first = Number(chart.data.labels[0]);
-    const px = xs.getPixelForValue(opts.mean - first);
-    const ctx = chart.ctx;
-    ctx.save();
-    ctx.strokeStyle = "#b3372f"; ctx.setLineDash([5, 4]); ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.moveTo(px, ys.top); ctx.lineTo(px, ys.bottom); ctx.stroke();
-    ctx.fillStyle = "#b3372f"; ctx.font = "11px Segoe UI";
-    ctx.fillText(`mean ${opts.mean.toFixed(1)}`, px + 5, ys.top + 12);
-    ctx.restore();
+    const labels = chart.data.labels;
+    if (!labels || !labels.length) return;
+    const xs = chart.scales.x, ys = chart.scales.y, ctx = chart.ctx;
+    const first = Number(labels[0]), last = Number(labels[labels.length - 1]);
+    const draw = (val, color, label, dy) => {
+      if (val === null || val === undefined) return;
+      if (val < first - 0.5 || val > last + 0.5) return; // off the visible scale
+      const px = xs.getPixelForValue(val - first);
+      ctx.save();
+      ctx.strokeStyle = color; ctx.setLineDash([5, 4]); ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(px, ys.top); ctx.lineTo(px, ys.bottom); ctx.stroke();
+      ctx.fillStyle = color; ctx.font = "11px Segoe UI";
+      ctx.fillText(label, px + 5, ys.top + dy);
+      ctx.restore();
+    };
+    if (opts.mean !== null && opts.mean !== undefined) draw(opts.mean, "#b3372f", `mean ${opts.mean.toFixed(1)}`, 12);
+    if (opts.world !== null && opts.world !== undefined) draw(opts.world, "#8a6d1a", `world ${Number(opts.world).toFixed(1)}`, 26);
   }
 };
 Chart.register(meanLinePlugin);
@@ -974,10 +1022,19 @@ function renderPointsChart() {
     type: "bar",
     data: { labels: h.labels, datasets: [{ data: h.counts, backgroundColor: "#14557b", label: "Candidates" }] },
     options: {
-      plugins: { legend: { display: false }, meanLine: { mean: h.mean } },
+      plugins: { legend: { display: false }, meanLine: { mean: h.mean, world: state.worldAvg } },
       scales: { y: { beginAtZero: true, ticks: { precision: 0 } }, x: { title: { display: true, text: "Total points" } } },
     },
   });
+  const f = $("worldFootnote");
+  if (state.worldAvg === null) f.innerHTML = "";
+  else if (state.worldAvgMode === "official") {
+    f.innerHTML = `World average ${state.worldAvg.toFixed(1)} (${esc(sessionTitle(state.worldAvgSession))}) &mdash; ` +
+      `source: ${esc(WORLD_SOURCE.cite)} &middot; <a href="${WORLD_SOURCE.url}" target="_blank" rel="noopener">ibo.org bulletin (PDF)</a>` +
+      ` &middot; accessed ${WORLD_SOURCE.accessed}.`;
+  } else {
+    f.innerHTML = `World average ${state.worldAvg} entered manually &mdash; not an official published figure.`;
+  }
 }
 
 function renderSubjectTable() {
@@ -1312,8 +1369,11 @@ function exportExcel() {
       ? (H.gaps.length ? H.gaps.map(g => ["Group gap", g]) : [["Group gaps", "None notable"]])
       : []),
     ...(state.worldAvg !== null && H.avgPts !== null
-      ? [["World average points (entered)", state.worldAvg],
-         ["School vs world", (H.avgPts - state.worldAvg >= 0 ? "+" : "") + (H.avgPts - state.worldAvg).toFixed(2)]]
+      ? [["World average points" + (state.worldAvgMode === "official" ? ` (${sessionTitle(state.worldAvgSession)})` : " (entered manually)"), state.worldAvg],
+         ["School vs world", (H.avgPts - state.worldAvg >= 0 ? "+" : "") + (H.avgPts - state.worldAvg).toFixed(2)],
+         ["World average source", state.worldAvgMode === "official"
+           ? `${WORLD_SOURCE.cite} - ${WORLD_SOURCE.url} (accessed ${WORLD_SOURCE.accessed})`
+           : "Entered manually - no published source"]]
       : []),
     ["", ""],
     ["Remark watchlist", "Missed by <=2 points or failed a condition at 24+"],
@@ -1366,6 +1426,7 @@ async function handleFile(file) {
     const buf = await file.arrayBuffer();
     await parsePdf(new Uint8Array(buf), file.name);
     computeMatches();
+    autoWorldAvg();
     $("dropzone").classList.add("hidden");
     $("dashboard").classList.remove("hidden");
     $("testPanel").classList.add("hidden");
@@ -1420,10 +1481,28 @@ $("btnReset").addEventListener("click", () => {
 });
 $("anonToggle").addEventListener("change", e => { state.anonymize = e.target.checked; renderHighlights(); renderFailTable(); renderCandTable(); renderMasterPanel(); });
 $("groupBy").addEventListener("change", e => { state.groupBy = e.target.value; renderGroupPanel(); });
+$("worldAvgSelect").innerHTML =
+  `<option value="">— none —</option>` +
+  Object.entries(WORLD_AVERAGES).map(([s, v]) =>
+    `<option value="${esc(s)}">${esc(sessionTitle(s))} · ${v.toFixed(1)} (official)</option>`).join("") +
+  `<option value="custom">Custom…</option>`;
+$("worldAvgSelect").addEventListener("change", e => {
+  const v = e.target.value;
+  if (!v) { state.worldAvg = null; state.worldAvgMode = null; state.worldAvgSession = null; }
+  else if (v === "custom") {
+    state.worldAvgMode = "custom"; state.worldAvgSession = null;
+    const n = parseFloat($("worldAvgInput").value);
+    state.worldAvg = Number.isFinite(n) && n >= 0 && n <= 45 ? n : null;
+  } else {
+    state.worldAvgMode = "official"; state.worldAvgSession = v; state.worldAvg = WORLD_AVERAGES[v];
+  }
+  renderHighlights(); renderPointsChart();
+});
 $("worldAvgInput").addEventListener("input", e => {
   const v = parseFloat(e.target.value);
+  state.worldAvgMode = "custom"; state.worldAvgSession = null;
   state.worldAvg = Number.isFinite(v) && v >= 0 && v <= 45 ? v : null;
-  renderHighlights();
+  renderHighlights(); renderPointsChart();
 });
 $("levelFilter").addEventListener("change", e => { state.levelFilter = e.target.value; renderSubjectTable(); });
 $("candSearch").addEventListener("input", renderCandTable);
@@ -1446,6 +1525,7 @@ window.addEventListener("beforeprint", () => { for (const c of Object.values(sta
     const buf = await resp.arrayBuffer();
     await parsePdf(new Uint8Array(buf), fixture);
     computeMatches();
+    autoWorldAvg();
     $("dropzone").classList.add("hidden");
     $("dashboard").classList.remove("hidden");
     renderAll();
