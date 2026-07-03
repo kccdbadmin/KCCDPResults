@@ -1,0 +1,6 @@
+# Never commit real results PDFs - sensitive student data.
+# Keep the fixture locally next to index.html for ?test=1 mode.
+*.pdf
+
+# Local dev config
+.claude/

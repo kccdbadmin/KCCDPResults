@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IB DP Results Analyzer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --ink: #1b2733;
+    --muted: #5b6b7b;
+    --line: #dde4ea;
+    --bg: #f4f6f8;
+    --card: #ffffff;
+    --accent: #14557b;
+    --accent-2: #1f7a4d;
+    --bad: #b3372f;
+    --warn-bg: #fff7e0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.45 "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+  header.app {
+    background: var(--accent); color: #fff; padding: 14px 24px;
+    display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
+  }
+  header.app h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  header.app .sub { opacity: .85; font-size: 13px; }
+  main { max-width: 1200px; margin: 0 auto; padding: 20px 24px 60px; }
+
+  /* Drop zone */
+  #dropzone {
+    border: 2px dashed #9db4c4; border-radius: 12px; background: var(--card);
+    padding: 60px 30px; text-align: center; cursor: pointer; margin-top: 30px;
+    transition: background .15s, border-color .15s;
+  }
+  #dropzone.drag { background: #e8f1f7; border-color: var(--accent); }
+  #dropzone h2 { margin: 0 0 8px; font-weight: 600; }
+  #dropzone p { color: var(--muted); margin: 4px 0; }
+  #dropzone .privacy { font-size: 12.5px; color: var(--accent-2); font-weight: 600; }
+  #fileInput { display: none; }
+  #parseProgress { margin-top: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  /* Toolbar */
+  #toolbar {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    margin: 16px 0;
+  }
+  button, label.toggle {
+    font: inherit; border: 1px solid var(--line); background: var(--card);
+    padding: 7px 14px; border-radius: 8px; cursor: pointer; color: var(--ink);
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:hover { filter: brightness(.97); }
+  label.toggle { display: inline-flex; gap: 7px; align-items: center; user-select: none; }
+  #statusLine { color: var(--muted); font-size: 13px; margin-left: auto; }
+
+  /* Panels */
+  section.panel {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 18px 20px; margin: 16px 0;
+  }
+  section.panel > h2 {
+    margin: 0 0 12px; font-size: 15px; font-weight: 700; color: var(--accent);
+    text-transform: uppercase; letter-spacing: .04em;
+  }
+  #warnPanel { background: var(--warn-bg); border-color: #e8d9a0; }
+  #warnPanel h2 { color: #8a6d1a; }
+  #warnPanel ul { margin: 0; padding-left: 20px; }
+  #warnPanel li { margin: 2px 0; font-size: 13px; }
+
+  /* KPI cards */
+  #kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+  .kpi {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .kpi .v { font-size: 26px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .kpi .l { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .kpi .d { font-size: 11.5px; color: var(--muted); opacity: .8; }
+
+  .chart-wrap { position: relative; height: 300px; }
+  .chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .chart-row .chart-wrap { height: 220px; }
+
+  /* Tables */
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { padding: 6px 9px; border-bottom: 1px solid var(--line); text-align: left; }
+  th { background: #eef2f5; font-weight: 600; white-space: nowrap; position: sticky; top: 0; }
+  th.sortable { cursor: pointer; }
+  th.sortable:hover { background: #e2e9ee; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr:hover td { background: #f7fafc; }
+  .scroll-y { max-height: 480px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; }
+
+  .minibar { display: flex; height: 12px; width: 130px; border-radius: 3px; overflow: hidden; background: #eee; }
+  .minibar span { display: block; height: 100%; }
+  .g1 { background:#a63028; } .g2 { background:#c05a2e; } .g3 { background:#d99a37; }
+  .g4 { background:#c9c15a; } .g5 { background:#8ab55e; } .g6 { background:#4d9963; } .g7 { background:#1f7a4d; }
+  .gN { background:#8a8a8a; }
+  .legend { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .legend i { display: inline-block; width: 11px; height: 11px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+
+  input[type=search] {
+    font: inherit; padding: 7px 12px; border: 1px solid var(--line); border-radius: 8px; width: 260px;
+  }
+  select { font: inherit; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 20px; font-size: 12px; }
+  .pill.ok { background: #e2f2e8; color: var(--accent-2); }
+  .pill.bad { background: #f7e3e1; color: var(--bad); }
+  .pill.mid { background: #ecf0f3; color: var(--muted); }
+
+  #testPanel table td, #testPanel table th { font-size: 13px; }
+  .pass { color: var(--accent-2); font-weight: 700; }
+  .fail { color: var(--bad); font-weight: 700; }
+
+  .hidden { display: none !important; }
+  footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 30px; }
+
+  /* ===== Print: leadership summary ===== */
+  .print-only { display: none; }
+  @media print {
+    @page { size: A4; margin: 14mm; }
+    body { background: #fff; font-size: 12px; }
+    header.app { background: #fff; color: var(--ink); padding: 0 0 8px; border-bottom: 2px solid var(--accent); }
+    main { max-width: none; padding: 0; }
+    .no-print, #dropzone, #toolbar, #candPanel, #warnPanel, #testPanel { display: none !important; }
+    .print-only { display: block; }
+    section.panel { border: none; padding: 8px 0; margin: 8px 0; break-inside: avoid; }
+    .scroll-y { max-height: none; overflow: visible; border: none; }
+    th { position: static; }
+    .chart-wrap { height: 240px; }
+    .chart-row .chart-wrap { height: 180px; }
+    #kpis { grid-template-columns: repeat(3, 1fr); }
+    a { text-decoration: none; color: inherit; }
+    /* never print student names */
+    .name-col { display: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<header class="app">
+  <h1>IB DP Results Analyzer</h1>
+  <span class="sub" id="headerSession">No file loaded</span>
+  <span class="sub print-only" id="printDate"></span>
+</header>
+
+<main>
+  <div id="dropzone" class="no-print">
+    <h2>Drop the IBIS &ldquo;Results summary&rdquo; PDF here</h2>
+    <p>or click to choose the file</p>
+    <p class="privacy">100% client-side &mdash; the PDF is parsed in your browser and never uploaded anywhere.</p>
+    <div id="parseProgress"></div>
+    <input type="file" id="fileInput" accept="application/pdf,.pdf">
+  </div>
+
+  <div id="dashboard" class="hidden">
+    <div id="toolbar" class="no-print">
+      <button class="primary" id="btnExcel">Export Excel (.xlsx)</button>
+      <button id="btnPrint">Print leadership summary</button>
+      <label class="toggle"><input type="checkbox" id="anonToggle"> Anonymize names</label>
+      <button id="btnReset">Load another file</button>
+      <span id="statusLine"></span>
+    </div>
+
+    <section class="panel" id="warnPanel">
+      <h2>Parse warnings (<span id="warnCount">0</span>)</h2>
+      <ul id="warnList"></ul>
+    </section>
+
+    <section class="panel" id="testPanel">
+      <h2>Fixture validation (test mode)</h2>
+      <div id="testResults"></div>
+    </section>
+
+    <div id="kpis"></div>
+
+    <section class="panel">
+      <h2>Total points distribution <span id="ptsSub" style="text-transform:none;font-weight:400;color:var(--muted)"></span></h2>
+      <div class="chart-wrap"><canvas id="pointsChart"></canvas></div>
+    </section>
+
+    <section class="panel" id="subjPanel">
+      <h2>Subject performance</h2>
+      <div class="no-print" style="margin-bottom:10px; display:flex; gap:10px; align-items:center;">
+        <select id="levelFilter">
+          <option value="ALL">HL + SL</option>
+          <option value="HL">HL only</option>
+          <option value="SL">SL only</option>
+        </select>
+        <span style="color:var(--muted); font-size:12.5px;">Current session, excluding retake &ldquo;additional&rdquo; attempts. Click a column to sort.</span>
+      </div>
+      <div class="scroll-y"><table id="subjTable"></table></div>
+      <div class="legend">
+        <span><i class="g7"></i>7</span><span><i class="g6"></i>6</span><span><i class="g5"></i>5</span>
+        <span><i class="g4"></i>4</span><span><i class="g3"></i>3</span><span><i class="g2"></i>2</span>
+        <span><i class="g1"></i>1</span><span><i class="gN"></i>N</span>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Grade distributions</h2>
+      <div class="chart-wrap" style="height:260px"><canvas id="gradesChart"></canvas></div>
+      <div class="chart-row" style="margin-top:18px">
+        <div><h3 style="margin:0 0 6px;font-size:13px;color:var(--muted)">Extended Essay (A&ndash;E)</h3>
+          <div class="chart-wrap"><canvas id="eeChart"></canvas></div></div>
+        <div><h3 style="margin:0 0 6px;font-size:13px;color:var(--muted)">Theory of Knowledge (A&ndash;E)</h3>
+          <div class="chart-wrap"><canvas id="tokChart"></canvas></div></div>
+      </div>
+    </section>
+
+    <section class="panel" id="failPanel">
+      <h2>Diploma not awarded</h2>
+      <div class="scroll-y"><table id="failTable"></table></div>
+    </section>
+
+    <section class="panel no-print" id="candPanel">
+      <h2>All candidates</h2>
+      <div style="margin-bottom:10px;">
+        <input type="search" id="candSearch" placeholder="Search name / candidate number&hellip;">
+      </div>
+      <div class="scroll-y"><table id="candTable"></table></div>
+    </section>
+  </div>
+
+  <footer class="no-print">
+    Data stays in this browser tab &mdash; nothing is uploaded or stored.
+    Append <code>?test=1</code> to the URL (served locally next to the fixture PDF) to run parser validation.
+  </footer>
+</main>
+
+<script>
+"use strict";
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+/* ================= Subject display names =================
+   Oracle truncates names to 30 chars; map the known raw names to
+   readable ones. Unknown names fall back to title case. Edit freely. */
+const SUBJECT_NAMES = {
+  "ENGLISH A: Lang and Literature": "English A: Language & Literature",
+  "ENGLISH A: Literature": "English A: Literature",
+  "ENGLISH A": "English A",
+  "ARABIC A: Lang and Literature": "Arabic A: Language & Literature",
+  "MATHEMATICS ANALYSIS AND APPRO": "Maths: Analysis & Approaches",
+  "MATHEMATICS APPLICATIONS AND I": "Maths: Applications & Interpretation",
+  "MATHEMATICS": "Mathematics",
+  "ENV. AND SOC.": "Environmental Systems & Societies",
+  "COMPUTER SC.": "Computer Science",
+  "DESIGN TECH.": "Design Technology",
+  "SPORTS EX SCI": "Sports, Exercise & Health Science",
+  "THEORY KNOWL.": "Theory of Knowledge",
+  "ARABIC AB.": "Arabic ab initio",
+  "FRENCH AB.": "French ab initio",
+  "SPANISH AB.": "Spanish ab initio",
+  "MANDARIN AB.": "Mandarin ab initio",
+  "CHINESE B - MANDARIN": "Chinese B (Mandarin)",
+  "KOREAN A: Literature self taug": "Korean A: Literature (self-taught)",
+  "JAPANES A: Literature self tau": "Japanese A: Literature (self-taught)",
+  "SPANISH A: Literature self tau": "Spanish A: Literature (self-taught)",
+  "DUTCH A: Literature self taugh": "Dutch A: Literature (self-taught)",
+  "HISTORY EUROPE": "History (Europe)",
+  "WLD. STUDIES CONF PEACE AND SE": "World Studies: Conflict, Peace & Security",
+  "WLD. STUDIES CULT LANG AND IDE": "World Studies: Culture, Language & Identity",
+  "WLD. STUDIES ENV/ECO SUSTAINAB": "World Studies: Environmental & Economic Sustainability",
+  "WLD. STUDIES EQUALITY AND INEQ": "World Studies: Equality & Inequality",
+};
+function displayName(raw) {
+  if (SUBJECT_NAMES[raw]) return SUBJECT_NAMES[raw];
+  return raw.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+}
+
+/* ================= State ================= */
+const state = {
+  session: null, schoolCode: null, datePrinted: null,
+  pages: 0, candidates: [], subjects: [], warnings: [],
+  anonymize: false, levelFilter: "ALL",
+  subjSort: { key: "entries", dir: -1 },
+  charts: {},
+};
+
+/* ================= PDF text -> lines =================
+   pdf.js gives positioned text items; rebuild visual lines by grouping
+   on y (tolerance) and ordering by x. Whitespace in the PDF is not
+   trusted; gaps between items become single spaces. */
+async function extractLines(page) {
+  const tc = await page.getTextContent();
+  const items = tc.items
+    .filter(it => it.str && it.str.trim() !== "")
+    .map(it => ({ x: it.transform[4], y: it.transform[5], w: it.width || 0, str: it.str }));
+  items.sort((a, b) => (b.y - a.y) || (a.x - b.x));
+  const lines = [];
+  for (const it of items) {
+    const last = lines[lines.length - 1];
+    if (last && Math.abs(last.y - it.y) < 3) last.parts.push(it);
+    else lines.push({ y: it.y, parts: [it] });
+  }
+  for (const ln of lines) {
+    ln.parts.sort((a, b) => a.x - b.x);
+    let text = "", cursor = null;
+    for (const p of ln.parts) {
+      if (cursor !== null) text += (p.x - cursor > 1.5) ? " " : "";
+      text += p.str;
+      cursor = p.x + p.w;
+    }
+    ln.text = text.replace(/\s+/g, " ").trim();
+  }
+  return lines;
+}
+
+/* ================= Parsing ================= */
+const RE_CANDIDATE = /^([A-Z]+ \d{4})\s*-\s*(\d{6})\s+(\d{4})\s*\((\w+)\)\s*$/;
+const RE_SUBJECT = /^([1-7A-EN])\s+([A-Z]+ \d{4})\s*-\s*(.+?)\s+(HL|SL|EE|TK)\s+in\s+(.+)$/;
+const KNOWN_RESULTS = ["Diploma awarded", "Bilingual Diploma awarded", "Diploma not awarded"];
+const KNOWN_CATEGORIES = ["DIPLOMA", "COURSE", "RETAKE", "ANTICIPATED"];
+
+function warn(msg) { state.warnings.push(msg); }
+
+// value of a "Label   Value" line where label and value are separate items
+function labelValue(line, label) {
+  if (!line.text.startsWith(label)) return null;
+  // find where the label's items end (label may itself be split into items)
+  let consumed = "", idx = 0;
+  while (idx < line.parts.length && consumed.replace(/\s+/g, " ").trim().length < label.length) {
+    consumed += (idx ? " " : "") + line.parts[idx].str;
+    idx++;
+  }
+  const rest = line.parts.slice(idx).map(p => p.str).join(" ").replace(/\s+/g, " ").trim();
+  return rest || line.text.slice(label.length).trim();
+}
+
+function newCandidate(pageNo) {
+  return {
+    page: pageNo, session: null, schoolCode: null, candidateNo: null, personalCode: null,
+    name: null, surname: null, givenNames: null, category: null, birthDate: null,
+    eeSubject: null, eeGrade: null, tokGrade: null, eeTokPoints: null,
+    totalPoints: null, result: null, casRaw: null, casSatisfied: false,
+    failReason: null, subjectCount: 0, hlCount: 0, slCount: 0,
+    _inAdditional: false, _inFailReason: false, _failLines: [],
+  };
+}
+
+function parsePage(lines, pageNo, current) {
+  // Detect a new candidate via the "Candidate" label row.
+  let candLine = null;
+  for (const ln of lines) {
+    if (ln.parts[0].str.trim() === "Candidate" && RE_CANDIDATE.test(labelValue(ln, "Candidate") || "")) {
+      candLine = ln; break;
+    }
+  }
+  let cand = current;
+  if (candLine) {
+    cand = newCandidate(pageNo);
+  } else if (!current) {
+    warn(`Page ${pageNo}: no Personal Details block and no previous candidate - page skipped.`);
+    return { cand: null, isNew: false };
+  } else {
+    warn(`Page ${pageNo}: no Personal Details block - treated as continuation of candidate ${current.candidateNo}.`);
+  }
+
+  for (const ln of lines) {
+    const t = ln.text;
+
+    if (!state.session) {
+      const m = t.match(/results in the session\s+(.+)$/);
+      if (m) state.session = m.group ? m.group(1) : m[1];
+    }
+    if (!state.datePrinted && t.startsWith("Date printed:")) {
+      state.datePrinted = t.slice("Date printed:".length).trim();
+    }
+
+    // ---- fail reason capture (may span lines / pages) ----
+    if (cand._inFailReason) {
+      if (/^Note, only the first/i.test(t)) {
+        cand.failReason = cand._failLines.join(" ").replace(/\s+/g, " ").trim();
+        cand._inFailReason = false;
+      } else if (t) {
+        cand._failLines.push(t);
+        continue;
+      }
+    }
+    if (t.startsWith("Diploma requirements code:")) { cand._inFailReason = true; continue; }
+
+    // ---- personal details ----
+    let v;
+    if ((v = labelValue(ln, "Candidate")) && RE_CANDIDATE.test(v)) {
+      const m = v.match(RE_CANDIDATE);
+      cand.session = m[1]; cand.schoolCode = m[2]; cand.candidateNo = m[3]; cand.personalCode = m[4];
+      if (!state.schoolCode) state.schoolCode = m[2];
+      continue;
+    }
+    if (ln.parts[0].str.trim() === "Name" && (v = labelValue(ln, "Name"))) {
+      cand.name = v;
+      const ci = v.indexOf(",");
+      cand.surname = ci >= 0 ? v.slice(0, ci).trim() : v;
+      cand.givenNames = ci >= 0 ? v.slice(ci + 1).trim() : "";
+      continue;
+    }
+    if (ln.parts[0].str.trim() === "Category" && (v = labelValue(ln, "Category"))) {
+      cand.category = v;
+      if (!KNOWN_CATEGORIES.includes(v)) warn(`Page ${pageNo}: unknown category "${v}".`);
+      continue;
+    }
+    if (t.startsWith("Birth Date") && (v = labelValue(ln, "Birth Date"))) { cand.birthDate = v; continue; }
+
+    // ---- subjects ----
+    if (t === "Additional subjects") { cand._inAdditional = true; continue; }
+    const sm = t.match(RE_SUBJECT);
+    if (sm) {
+      const [, grade, session, rawName, level, language] = sm;
+      const numeric = /^[1-7]$/.test(grade) ? Number(grade) : null;
+      if (grade === "N") warn(`Page ${pageNo}: grade "N" (no grade) for ${rawName} ${level}.`);
+      state.subjects.push({
+        candidateNo: cand.candidateNo, name: cand.name, session,
+        subjectRaw: rawName, subjectDisplay: displayName(rawName),
+        level, language, grade, gradeNumeric: numeric, additional: cand._inAdditional,
+      });
+      if (!cand._inAdditional) {
+        if (level === "EE") { cand.eeSubject = displayName(rawName); cand.eeGrade = grade; }
+        else if (level === "TK") { cand.tokGrade = grade; }
+        else {
+          cand.subjectCount++;
+          if (level === "HL") cand.hlCount++;
+          if (level === "SL") cand.slCount++;
+        }
+      }
+      continue;
+    }
+
+    // ---- totals ----
+    let m;
+    if ((m = t.match(/^EE\/TOK points:\s*(\d+)/))) { cand.eeTokPoints = Number(m[1]); continue; }
+    if ((m = t.match(/^Total Points:\s*(\d+)/))) { cand.totalPoints = Number(m[1]); continue; }
+    if ((m = t.match(/^Result:\s*(.+)$/))) {
+      cand.result = m[1].trim();
+      if (!KNOWN_RESULTS.includes(cand.result)) warn(`Page ${pageNo}: unrecognized result "${cand.result}".`);
+      continue;
+    }
+    if (/CAS \(Creativity-Activity-Service\) requirements/i.test(t) || (/\bCAS\b/.test(t) && /requirements/i.test(t))) {
+      cand.casRaw = t;
+      cand.casSatisfied = /have been fully satisfied/i.test(t);
+      continue;
+    }
+  }
+  return { cand, isNew: !!candLine };
+}
+
+async function parsePdf(data, sourceLabel) {
+  resetState();
+  showProgress(`Opening ${sourceLabel}…`);
+  const doc = await pdfjsLib.getDocument({ data }).promise;
+  state.pages = doc.numPages;
+  let current = null;
+  for (let p = 1; p <= doc.numPages; p++) {
+    if (p % 10 === 0 || p === doc.numPages) showProgress(`Parsing page ${p} / ${doc.numPages}…`);
+    const page = await doc.getPage(p);
+    const lines = await extractLines(page);
+    const { cand, isNew } = parsePage(lines, p, current);
+    if (isNew && current) state.candidates.push(current);
+    if (cand) current = cand;
+  }
+  if (current) state.candidates.push(current);
+
+  // flush a fail-reason still open on the last line of a page
+  for (const c of state.candidates) {
+    if (c._inFailReason && c._failLines.length) {
+      c.failReason = c._failLines.join(" ").replace(/\s+/g, " ").trim();
+    }
+    delete c._inFailReason; delete c._failLines; delete c._inAdditional; delete c.page;
+    if (!c.candidateNo) warn(`A candidate block is missing its candidate number.`);
+    if (c.subjectCount === 0 && !["RETAKE"].includes(c.category)) warn(`Candidate ${c.candidateNo || "?"}: no subject rows parsed.`);
+  }
+  showProgress("");
+}
+
+function resetState() {
+  state.session = null; state.schoolCode = null; state.datePrinted = null;
+  state.pages = 0; state.candidates = []; state.subjects = []; state.warnings = [];
+}
+
+/* ================= Aggregations ================= */
+function currentSubjects({ lettersToo = false } = {}) {
+  return state.subjects.filter(s =>
+    !s.additional &&
+    (lettersToo ? true : s.gradeNumeric !== null) &&
+    (s.level === "HL" || s.level === "SL") &&
+    s.session === state.session
+  );
+}
+function diplomaTrack() {
+  return state.candidates.filter(c => c.category !== "COURSE");
+}
+function computeKpis() {
+  const dip = diplomaTrack();
+  const withResult = dip.filter(c => KNOWN_RESULTS.includes(c.result));
+  const awarded = withResult.filter(c => c.result === "Diploma awarded" || c.result === "Bilingual Diploma awarded");
+  const bilingual = withResult.filter(c => c.result === "Bilingual Diploma awarded");
+  const withPts = dip.filter(c => c.totalPoints !== null);
+  const avgPts = withPts.length ? withPts.reduce((a, c) => a + c.totalPoints, 0) / withPts.length : null;
+  const grades = currentSubjects().map(s => s.gradeNumeric);
+  const avgGrade = grades.length ? grades.reduce((a, b) => a + b, 0) / grades.length : null;
+  const maxPts = withPts.length ? Math.max(...withPts.map(c => c.totalPoints)) : null;
+  return {
+    passRate: withResult.length ? awarded.length / withResult.length : null,
+    passN: awarded.length, passDen: withResult.length,
+    avgPts, avgGrade, maxPts,
+    bilingual: bilingual.length,
+    over40: withPts.filter(c => c.totalPoints >= 40).length,
+    notAwarded: withResult.filter(c => c.result === "Diploma not awarded").length,
+  };
+}
+function pointsHistogram() {
+  const pts = diplomaTrack().filter(c => c.totalPoints !== null).map(c => c.totalPoints);
+  if (!pts.length) return { labels: [], counts: [], mean: null };
+  const lo = Math.min(...pts), hi = Math.max(...pts);
+  const labels = [], counts = [];
+  for (let p = lo; p <= hi; p++) { labels.push(p); counts.push(pts.filter(x => x === p).length); }
+  return { labels, counts, mean: pts.reduce((a, b) => a + b, 0) / pts.length };
+}
+function subjectSummary() {
+  const rows = new Map();
+  for (const s of state.subjects) {
+    if (s.additional || s.session !== state.session) continue;
+    if (s.level !== "HL" && s.level !== "SL") continue;
+    const key = s.subjectDisplay + "||" + s.level;
+    if (!rows.has(key)) rows.set(key, { subject: s.subjectDisplay, level: s.level, entries: 0, dist: { 1:0,2:0,3:0,4:0,5:0,6:0,7:0,N:0 } });
+    const r = rows.get(key);
+    r.entries++;
+    r.dist[s.gradeNumeric !== null ? s.gradeNumeric : "N"]++;
+  }
+  const out = [...rows.values()];
+  for (const r of out) {
+    let sum = 0, n = 0;
+    for (let g = 1; g <= 7; g++) { sum += g * r.dist[g]; n += r.dist[g]; }
+    r.avg = n ? sum / n : null;
+    r.pct67 = n ? (r.dist[6] + r.dist[7]) / n : null;
+    r.pctLow = n ? (r.dist[1] + r.dist[2] + r.dist[3]) / n : null;
+  }
+  return out;
+}
+function letterDist(level) {
+  const d = { A: 0, B: 0, C: 0, D: 0, E: 0, N: 0 };
+  for (const s of state.subjects) {
+    if (s.additional || s.level !== level) continue;
+    if (d[s.grade] === undefined) continue;
+    d[s.grade]++;
+  }
+  return d;
+}
+
+/* ================= Rendering ================= */
+const $ = id => document.getElementById(id);
+const fmt = (x, d = 1) => x === null || x === undefined ? "–" : (typeof x === "number" ? x.toFixed(d) : x);
+const pct = x => x === null ? "–" : (100 * x).toFixed(1) + "%";
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function candLabel(c) {
+  return state.anonymize ? `Candidate ${c.candidateNo}` : c.name;
+}
+
+function renderAll() {
+  const catCounts = {};
+  for (const c of state.candidates) catCounts[c.category || "?"] = (catCounts[c.category || "?"] || 0) + 1;
+  $("headerSession").textContent =
+    `${state.session || "?"} · school ${state.schoolCode || "?"} · ${state.candidates.length} candidates (` +
+    Object.entries(catCounts).map(([k, v]) => `${v} ${k}`).join(", ") + ")";
+  $("printDate").textContent = ` · printed ${new Date().toLocaleDateString()}`;
+  $("statusLine").textContent =
+    `${state.pages} pages parsed · ${state.candidates.length} candidates · ${state.subjects.length} subject rows · ${state.warnings.length} warnings`;
+
+  // warnings
+  $("warnCount").textContent = state.warnings.length;
+  $("warnList").innerHTML = state.warnings.length
+    ? state.warnings.map(w => `<li>${esc(w)}</li>`).join("")
+    : "<li>No warnings - every page parsed cleanly.</li>";
+
+  renderKpis(); renderPointsChart(); renderSubjectTable();
+  renderGradeCharts(); renderFailTable(); renderCandTable();
+}
+
+function renderKpis() {
+  const k = computeKpis();
+  $("kpis").innerHTML = [
+    { v: pct(k.passRate), l: "Diploma pass rate", d: `${k.passN} of ${k.passDen} diploma-track candidates` },
+    { v: fmt(k.avgPts, 1), l: "Average total points", d: "diploma-track candidates" },
+    { v: k.maxPts ?? "–", l: "Highest score", d: `${k.over40} candidate(s) at 40+` },
+    { v: k.bilingual, l: "Bilingual diplomas", d: "" },
+    { v: fmt(k.avgGrade, 2), l: "Average subject grade", d: "current session, HL+SL" },
+    { v: k.notAwarded, l: "Not awarded", d: "see panel below" },
+  ].map(x => `<div class="kpi"><div class="v">${x.v}</div><div class="l">${x.l}</div><div class="d">${x.d}</div></div>`).join("");
+}
+
+function makeChart(id, cfg) {
+  if (state.charts[id]) state.charts[id].destroy();
+  cfg.options = Object.assign({ responsive: true, maintainAspectRatio: false, devicePixelRatio: 2 }, cfg.options || {});
+  state.charts[id] = new Chart($(id), cfg);
+}
+
+const meanLinePlugin = {
+  id: "meanLine",
+  afterDatasetsDraw(chart, _args, opts) {
+    if (opts.mean === null || opts.mean === undefined) return;
+    const xs = chart.scales.x, ys = chart.scales.y;
+    const first = Number(chart.data.labels[0]);
+    const px = xs.getPixelForValue(opts.mean - first);
+    const ctx = chart.ctx;
+    ctx.save();
+    ctx.strokeStyle = "#b3372f"; ctx.setLineDash([5, 4]); ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(px, ys.top); ctx.lineTo(px, ys.bottom); ctx.stroke();
+    ctx.fillStyle = "#b3372f"; ctx.font = "11px Segoe UI";
+    ctx.fillText(`mean ${opts.mean.toFixed(1)}`, px + 5, ys.top + 12);
+    ctx.restore();
+  }
+};
+Chart.register(meanLinePlugin);
+
+function renderPointsChart() {
+  const h = pointsHistogram();
+  $("ptsSub").textContent = h.mean !== null ? `(diploma-track, mean ${h.mean.toFixed(1)})` : "";
+  makeChart("pointsChart", {
+    type: "bar",
+    data: { labels: h.labels, datasets: [{ data: h.counts, backgroundColor: "#14557b", label: "Candidates" }] },
+    options: {
+      plugins: { legend: { display: false }, meanLine: { mean: h.mean } },
+      scales: { y: { beginAtZero: true, ticks: { precision: 0 } }, x: { title: { display: true, text: "Total points" } } },
+    },
+  });
+}
+
+function renderSubjectTable() {
+  let rows = subjectSummary();
+  if (state.levelFilter !== "ALL") rows = rows.filter(r => r.level === state.levelFilter);
+  const { key, dir } = state.subjSort;
+  rows.sort((a, b) => {
+    const av = a[key], bv = b[key];
+    if (typeof av === "string") return dir * av.localeCompare(bv);
+    return dir * ((av ?? -1) - (bv ?? -1));
+  });
+  const head = [
+    ["subject", "Subject"], ["level", "Level"], ["entries", "Entries"],
+    ["avg", "Avg grade"], ["pct67", "% 6–7"], ["pctLow", "% ≤3"],
+  ];
+  const arrow = k => key === k ? (dir > 0 ? " ▲" : " ▼") : "";
+  let html = "<thead><tr>" + head.map(([k, l]) =>
+    `<th class="sortable${["entries","avg","pct67","pctLow"].includes(k) ? " num" : ""}" data-key="${k}">${l}${arrow(k)}</th>`).join("") +
+    "<th>Grades 1→7</th></tr></thead><tbody>";
+  for (const r of rows) {
+    const total = r.entries || 1;
+    const bar = [1,2,3,4,5,6,7,"N"].map(g =>
+      r.dist[g] ? `<span class="g${g}" style="width:${100 * r.dist[g] / total}%" title="grade ${g}: ${r.dist[g]}"></span>` : "").join("");
+    html += `<tr><td>${esc(r.subject)}</td><td>${r.level}</td><td class="num">${r.entries}</td>` +
+      `<td class="num">${fmt(r.avg, 2)}</td><td class="num">${pct(r.pct67)}</td><td class="num">${pct(r.pctLow)}</td>` +
+      `<td><div class="minibar">${bar}</div></td></tr>`;
+  }
+  $("subjTable").innerHTML = html + "</tbody>";
+  $("subjTable").querySelectorAll("th.sortable").forEach(th => th.onclick = () => {
+    const k = th.dataset.key;
+    if (state.subjSort.key === k) state.subjSort.dir *= -1;
+    else state.subjSort = { key: k, dir: k === "subject" || k === "level" ? 1 : -1 };
+    renderSubjectTable();
+  });
+}
+
+function renderGradeCharts() {
+  const cur = currentSubjects({ lettersToo: true });
+  const levels = ["HL", "SL"];
+  const colors = { HL: "#14557b", SL: "#6da3c0" };
+  makeChart("gradesChart", {
+    type: "bar",
+    data: {
+      labels: ["1", "2", "3", "4", "5", "6", "7", "N"],
+      datasets: levels.map(lv => ({
+        label: lv, backgroundColor: colors[lv],
+        data: ["1","2","3","4","5","6","7","N"].map(g => cur.filter(s => s.level === lv && s.grade === g).length),
+      })),
+    },
+    options: { plugins: { legend: { position: "top" } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } }, x: { title: { display: true, text: "Grade (current session subject entries)" } } } },
+  });
+  for (const [id, lvl, color] of [["eeChart", "EE", "#1f7a4d"], ["tokChart", "TK", "#8a6d1a"]]) {
+    const d = letterDist(lvl);
+    makeChart(id, {
+      type: "bar",
+      data: { labels: Object.keys(d), datasets: [{ data: Object.values(d), backgroundColor: color, label: lvl }] },
+      options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } },
+    });
+  }
+}
+
+function renderFailTable() {
+  const rows = state.candidates.filter(c => c.result === "Diploma not awarded");
+  let html = `<thead><tr><th>Candidate #</th><th class="name-col">Name</th><th>Category</th><th class="num">Total points</th><th>Reason (first diploma requirements code)</th></tr></thead><tbody>`;
+  for (const c of rows) {
+    html += `<tr><td>${esc(c.candidateNo)}</td><td class="name-col">${esc(candLabel(c))}</td><td>${esc(c.category)}</td>` +
+      `<td class="num">${c.totalPoints ?? "–"}</td><td>${esc(c.failReason || "–")}</td></tr>`;
+  }
+  if (!rows.length) html += `<tr><td colspan="5">None 🎉</td></tr>`;
+  $("failTable").innerHTML = html + "</tbody>";
+}
+
+function renderCandTable() {
+  const q = ($("candSearch").value || "").toLowerCase();
+  const rows = state.candidates.filter(c =>
+    !q || (c.name || "").toLowerCase().includes(q) || (c.candidateNo || "").includes(q));
+  let html = `<thead><tr><th>#</th><th>Name</th><th>Category</th><th class="num">HL</th><th class="num">SL</th>` +
+    `<th>EE</th><th>TOK</th><th class="num">EE/TOK pts</th><th class="num">Total</th><th>Result</th><th>CAS</th></tr></thead><tbody>`;
+  for (const c of rows) {
+    const pill = c.result === "Diploma not awarded" ? "bad" : (c.result ? "ok" : "mid");
+    html += `<tr><td>${esc(c.candidateNo)}</td><td>${esc(candLabel(c))}</td><td>${esc(c.category)}</td>` +
+      `<td class="num">${c.hlCount}</td><td class="num">${c.slCount}</td>` +
+      `<td>${esc(c.eeGrade ? `${c.eeGrade} (${c.eeSubject})` : "–")}</td><td>${esc(c.tokGrade || "–")}</td>` +
+      `<td class="num">${c.eeTokPoints ?? "–"}</td><td class="num">${c.totalPoints ?? "–"}</td>` +
+      `<td><span class="pill ${pill}">${esc(c.result || "course only")}</span></td>` +
+      `<td>${c.casSatisfied ? "✓" : (c.casRaw ? "✗" : "–")}</td></tr>`;
+  }
+  $("candTable").innerHTML = html + "</tbody>";
+}
+
+/* ================= Excel export ================= */
+function exportExcel() {
+  const wb = XLSX.utils.book_new();
+  const freeze = ws => { ws["!freeze"] = { xSplit: 0, ySplit: 1 }; };
+  const autofit = (ws, rows, headers) => {
+    ws["!cols"] = headers.map((h, i) => ({
+      wch: Math.min(48, Math.max(String(h).length, ...rows.map(r => String(r[i] ?? "").length)) + 2),
+    }));
+  };
+  const sheet = (name, headers, rows, filter = true) => {
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    autofit(ws, rows, headers); freeze(ws);
+    if (filter && rows.length) ws["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length, c: headers.length - 1 } }) };
+    XLSX.utils.book_append_sheet(wb, ws, name);
+  };
+
+  sheet("Candidates",
+    ["Candidate No", "Personal Code", "Name", "Surname", "Given Names", "Category", "Birth Date",
+     "EE Subject", "EE Grade", "TOK Grade", "EE/TOK Points", "Total Points", "Result", "CAS Satisfied",
+     "Fail Reason", "Subjects", "HL", "SL"],
+    state.candidates.map(c => [c.candidateNo, c.personalCode, c.name, c.surname, c.givenNames, c.category,
+      c.birthDate, c.eeSubject, c.eeGrade, c.tokGrade, c.eeTokPoints, c.totalPoints, c.result,
+      c.casSatisfied ? "Yes" : "No", c.failReason, c.subjectCount, c.hlCount, c.slCount]));
+
+  sheet("Subjects",
+    ["Candidate No", "Name", "Session", "Subject (raw)", "Subject", "Level", "Language", "Grade", "Grade (numeric)", "Additional"],
+    state.subjects.map(s => [s.candidateNo, s.name, s.session, s.subjectRaw, s.subjectDisplay, s.level,
+      s.language, s.grade, s.gradeNumeric, s.additional ? "Yes" : "No"]));
+
+  sheet("Subject Summary",
+    ["Subject", "Level", "Entries", "Avg Grade", "% 6-7", "% <=3", "1", "2", "3", "4", "5", "6", "7", "N"],
+    subjectSummary().sort((a, b) => b.entries - a.entries).map(r => [r.subject, r.level, r.entries,
+      r.avg === null ? "" : +r.avg.toFixed(2),
+      r.pct67 === null ? "" : +(100 * r.pct67).toFixed(1), r.pctLow === null ? "" : +(100 * r.pctLow).toFixed(1),
+      r.dist[1], r.dist[2], r.dist[3], r.dist[4], r.dist[5], r.dist[6], r.dist[7], r.dist.N]));
+
+  const h = pointsHistogram();
+  sheet("Points Distribution", ["Total Points", "Candidates"], h.labels.map((l, i) => [l, h.counts[i]]), false);
+
+  const k = computeKpis();
+  sheet("Summary", ["Metric", "Value"], [
+    ["Session", state.session], ["School code", state.schoolCode], ["Date printed (on PDF)", state.datePrinted],
+    ["Candidates", state.candidates.length],
+    ...Object.entries(state.candidates.reduce((a, c) => (a[c.category] = (a[c.category] || 0) + 1, a), {}))
+      .map(([cat, n]) => [`Candidates: ${cat}`, n]),
+    ["Diploma pass rate", k.passRate === null ? "" : +(100 * k.passRate).toFixed(1) + "%"],
+    ["Diplomas awarded (incl. bilingual)", k.passN],
+    ["Bilingual diplomas", k.bilingual],
+    ["Diplomas not awarded", k.notAwarded],
+    ["Average total points", k.avgPts === null ? "" : +k.avgPts.toFixed(2)],
+    ["Highest total points", k.maxPts],
+    ["Candidates at 40+", k.over40],
+    ["Average subject grade", k.avgGrade === null ? "" : +k.avgGrade.toFixed(2)],
+    ["Parse warnings", state.warnings.length],
+  ], false);
+
+  const fname = `IB_Results_${(state.session || "session").replace(/\s+/g, "_")}.xlsx`;
+  XLSX.writeFile(wb, fname);
+}
+
+/* ================= Test mode (fixture validation) ================= */
+async function runTests() {
+  const checks = [];
+  const eq = (label, actual, expected) => checks.push({ label, actual, expected, ok: actual === expected });
+  const cats = state.candidates.reduce((a, c) => (a[c.category] = (a[c.category] || 0) + 1, a), {});
+  const res = state.candidates.reduce((a, c) => (a[c.result] = (a[c.result] || 0) + 1, a), {});
+  eq("Candidates (pages)", state.candidates.length, 141);
+  eq("Category DIPLOMA", cats.DIPLOMA || 0, 136);
+  eq("Category COURSE", cats.COURSE || 0, 4);
+  eq("Category RETAKE", cats.RETAKE || 0, 1);
+  eq("Diploma awarded", res["Diploma awarded"] || 0, 115);
+  eq("Bilingual Diploma awarded", res["Bilingual Diploma awarded"] || 0, 5);
+  eq("Diploma not awarded", res["Diploma not awarded"] || 0, 17);
+  eq("CAS satisfied", state.candidates.filter(c => c.casSatisfied).length, 137);
+  eq("Max total points", Math.max(...state.candidates.filter(c => c.totalPoints !== null).map(c => c.totalPoints)), 43);
+  eq("Session detected", state.session, "MAY 2025");
+  eq("School code detected", state.schoolCode, "003271");
+  eq("Additional subject rows", state.subjects.filter(s => s.additional).length, 5);
+  eq("Fail reasons captured", state.candidates.filter(c => c.result === "Diploma not awarded" && c.failReason).length, 17);
+
+  const allOk = checks.every(c => c.ok);
+  $("testPanel").classList.remove("hidden");
+  $("testResults").innerHTML =
+    `<p class="${allOk ? "pass" : "fail"}">${allOk ? "ALL CHECKS PASSED" : "FAILURES DETECTED"}</p>` +
+    "<table><thead><tr><th>Check</th><th>Expected</th><th>Actual</th><th></th></tr></thead><tbody>" +
+    checks.map(c => `<tr><td>${esc(c.label)}</td><td>${esc(c.expected)}</td><td>${esc(c.actual)}</td>` +
+      `<td class="${c.ok ? "pass" : "fail"}">${c.ok ? "PASS" : "FAIL"}</td></tr>`).join("") +
+    "</tbody></table>";
+  if (!allOk) console.error("Fixture validation FAILED", checks.filter(c => !c.ok));
+  else console.log("Fixture validation passed:", checks.length, "checks");
+  return allOk;
+}
+
+/* ================= Wiring ================= */
+function showProgress(msg) { $("parseProgress").textContent = msg; }
+
+async function handleFile(file) {
+  if (!file) return;
+  try {
+    const buf = await file.arrayBuffer();
+    await parsePdf(new Uint8Array(buf), file.name);
+    $("dropzone").classList.add("hidden");
+    $("dashboard").classList.remove("hidden");
+    $("testPanel").classList.add("hidden");
+    renderAll();
+  } catch (err) {
+    console.error(err);
+    showProgress("Could not parse that file: " + err.message);
+  }
+}
+
+const dz = $("dropzone");
+dz.addEventListener("click", () => $("fileInput").click());
+$("fileInput").addEventListener("change", e => handleFile(e.target.files[0]));
+["dragover", "dragenter"].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add("drag"); }));
+["dragleave", "drop"].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove("drag"); }));
+dz.addEventListener("drop", e => handleFile(e.dataTransfer.files[0]));
+
+$("btnExcel").addEventListener("click", exportExcel);
+$("btnPrint").addEventListener("click", () => window.print());
+$("btnReset").addEventListener("click", () => {
+  $("dashboard").classList.add("hidden");
+  $("dropzone").classList.remove("hidden");
+  $("fileInput").value = "";
+  showProgress("");
+});
+$("anonToggle").addEventListener("change", e => { state.anonymize = e.target.checked; renderFailTable(); renderCandTable(); });
+$("levelFilter").addEventListener("change", e => { state.levelFilter = e.target.value; renderSubjectTable(); });
+$("candSearch").addEventListener("input", renderCandTable);
+$("warnPanel").classList.add("hidden");
+$("testPanel").classList.add("hidden");
+
+// crisp charts when printing
+window.addEventListener("beforeprint", () => { for (const c of Object.values(state.charts)) c.resize(); });
+
+/* Test mode: ONLY when explicitly requested via ?test=1, fetch the local
+   fixture PDF sitting next to index.html (dev server only - the fixture is
+   not committed). User-dropped files are never fetched or transmitted. */
+(async function init() {
+  const params = new URLSearchParams(location.search);
+  if (!params.has("test")) return;
+  const fixture = params.get("test") === "1" || params.get("test") === "" ? "May_2025_results_RAHA.pdf" : params.get("test");
+  try {
+    const resp = await fetch(fixture);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const buf = await resp.arrayBuffer();
+    await parsePdf(new Uint8Array(buf), fixture);
+    $("dropzone").classList.add("hidden");
+    $("dashboard").classList.remove("hidden");
+    renderAll();
+    $("warnPanel").classList.remove("hidden");
+    await runTests();
+  } catch (err) {
+    console.error(err);
+    showProgress(`Test mode: could not load fixture "${fixture}" (${err.message}). Serve this folder locally with the fixture PDF present.`);
+  }
+})();
+
+// show warnings panel whenever there are warnings
+const _renderAll = renderAll;
+renderAll = function () {
+  _renderAll();
+  $("warnPanel").classList.toggle("hidden", state.warnings.length === 0);
+};
+</script>
+</body>
+</html>
