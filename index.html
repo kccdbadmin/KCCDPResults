@@ -3,42 +3,64 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>IB DP Results Analyzer</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
-<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<title>IB DP Results Analyzer — Raha International School, Khalifa City Campus</title>
+<meta name="description" content="Client-side analyzer for IBIS IB Diploma Programme results PDFs — Raha International School, Khalifa City Campus, Abu Dhabi.">
+<meta name="theme-color" content="#344042">
+<!-- favicon: the four-circle roundel from the RIS logo -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='23' cy='23' r='14' fill='%231ea270'/%3E%3Ccircle cx='41' cy='23' r='14' fill='%231ea270'/%3E%3Ccircle cx='23' cy='41' r='14' fill='%231ea270'/%3E%3Ccircle cx='41' cy='41' r='14' fill='%23f04e4f'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" integrity="sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" integrity="sha384-JUh163oCRItcbPme8pYnROHQMC6fNKTBWtRG3I3I0erJkzNgL7uxKlNwcrcFKeqF" crossorigin="anonymous"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js" integrity="sha384-EnyY0/GSHQGSxSgMwaIPzSESbqoOLSexfnSMN2AP+39Ckmn92stwABZynq1JyzdT" crossorigin="anonymous"></script>
 <style>
+  /* Raha International School brand palette (ris.ae theme):
+     green #1ea270, lime #a4d02a, coral #f04e4f, soft cream #f0eee9,
+     slate #344042, Poppins. Darker derivatives are used where the
+     brand colours are too light for small text (WCAG contrast). */
   :root {
-    --ink: #1b2733;
-    --muted: #5b6b7b;
-    --line: #dde4ea;
-    --bg: #f4f6f8;
+    --ink: #344042;
+    --muted: #5e6b6d;
+    --line: #ded9cf;
+    --bg: #f0eee9;
     --card: #ffffff;
-    --accent: #14557b;
-    --accent-2: #1f7a4d;
-    --bad: #b3372f;
+    --slate: #344042;
+    --accent: #1ea270;
+    --accent-2: #157a52;
+    --lime: #a4d02a;
+    --coral: #f04e4f;
+    --bad: #d43d3e;
     --warn-bg: #fff7e0;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0; background: var(--bg); color: var(--ink);
-    font: 14px/1.45 "Segoe UI", system-ui, -apple-system, sans-serif;
+    font: 14px/1.45 "Poppins", "Segoe UI", system-ui, -apple-system, sans-serif;
   }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   header.app {
-    background: var(--accent); color: #fff; padding: 14px 24px;
-    display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
+    background: var(--slate); color: #fff; padding: 12px 24px;
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
   }
-  header.app h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  header.app .logo { display: flex; align-items: center; }
+  header.app .logo svg { height: 36px; width: auto; display: block; }
+  header.app .titles { border-left: 1px solid rgba(255,255,255,.35); padding-left: 16px; }
+  header.app h1 { font-size: 17px; margin: 0; font-weight: 600; }
+  header.app .campus {
+    display: block; font-size: 10.5px; font-weight: 600;
+    letter-spacing: .14em; text-transform: uppercase; color: var(--lime);
+  }
   header.app .sub { opacity: .85; font-size: 13px; }
   main { max-width: 1200px; margin: 0 auto; padding: 20px 24px 60px; }
 
   /* Drop zone */
   #dropzone {
-    border: 2px dashed #9db4c4; border-radius: 12px; background: var(--card);
+    border: 2px dashed #a9c6b8; border-radius: 12px; background: var(--card);
     padding: 60px 30px; text-align: center; cursor: pointer; margin-top: 30px;
     transition: background .15s, border-color .15s;
   }
-  #dropzone.drag { background: #e8f1f7; border-color: var(--accent); }
+  #dropzone.drag { background: #e7f3ed; border-color: var(--accent); }
   #dropzone h2 { margin: 0 0 8px; font-weight: 600; }
   #dropzone p { color: var(--muted); margin: 4px 0; }
   #dropzone .privacy { font-size: 12.5px; color: var(--accent-2); font-weight: 600; }
@@ -56,6 +78,8 @@
   }
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   button:hover { filter: brightness(.97); }
+  /* RIS button hover: green -> lime, as on ris.ae */
+  button.primary:hover { background: var(--lime); border-color: var(--lime); color: var(--slate); filter: none; }
   label.toggle { display: inline-flex; gap: 7px; align-items: center; user-select: none; }
   #statusLine { color: var(--muted); font-size: 13px; margin-left: auto; }
 
@@ -65,9 +89,16 @@
     padding: 18px 20px; margin: 16px 0;
   }
   section.panel > h2 {
-    margin: 0 0 12px; font-size: 15px; font-weight: 700; color: var(--accent);
+    margin: 0 0 12px; font-size: 15px; font-weight: 700; color: var(--accent-2);
     text-transform: uppercase; letter-spacing: .04em;
   }
+  /* What-if banner: must stay loud on screen AND in print so adjusted
+     figures can never be mistaken for the official results */
+  #adjustPanel { background: #fdf1f0; border-color: #eebcb7; }
+  #adjustPanel h2 { color: var(--bad); }
+  #adjustPanel p { margin: 6px 0; }
+  tr.excl td { opacity: .5; }
+
   #warnPanel { background: var(--warn-bg); border-color: #e8d9a0; }
   #warnPanel h2 { color: #8a6d1a; }
   #warnPanel ul { margin: 0; padding-left: 20px; }
@@ -94,17 +125,17 @@
   /* Tables */
   table { border-collapse: collapse; width: 100%; font-size: 13px; }
   th, td { padding: 6px 9px; border-bottom: 1px solid var(--line); text-align: left; }
-  th { background: #eef2f5; font-weight: 600; white-space: nowrap; position: sticky; top: 0; }
+  th { background: #eef1ec; font-weight: 600; white-space: nowrap; position: sticky; top: 0; }
   th.sortable { cursor: pointer; }
-  th.sortable:hover { background: #e2e9ee; }
+  th.sortable:hover { background: #e4eae1; }
   td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-  tr:hover td { background: #f7fafc; }
+  tr:hover td { background: #f7faf6; }
   .scroll-y { max-height: 480px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; }
 
   .minibar { display: flex; height: 12px; width: 130px; border-radius: 3px; overflow: hidden; background: #eee; }
   .minibar span { display: block; height: 100%; }
   .g1 { background:#a63028; } .g2 { background:#c05a2e; } .g3 { background:#d99a37; }
-  .g4 { background:#c9c15a; } .g5 { background:#8ab55e; } .g6 { background:#4d9963; } .g7 { background:#1f7a4d; }
+  .g4 { background:#c9c15a; } .g5 { background:#8ab55e; } .g6 { background:#4d9963; } .g7 { background:#1ea270; }
   .gN { background:#8a8a8a; }
   .legend { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 8px; }
   .legend i { display: inline-block; width: 11px; height: 11px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
@@ -131,10 +162,16 @@
     @page { size: A4; margin: 14mm; }
     body { background: #fff; font-size: 12px; }
     header.app { background: #fff; color: var(--ink); padding: 0 0 8px; border-bottom: 2px solid var(--accent); }
+    /* the logo is white-on-slate, so print the school name as text instead */
+    header.app .titles { border-left: none; padding-left: 0; }
+    header.app .campus { color: var(--accent-2); }
     main { max-width: none; padding: 0; }
     .no-print, #dropzone, #toolbar, #candPanel, #warnPanel, #testPanel { display: none !important; }
     .print-only { display: block; }
+    span.print-only { display: inline; }
     section.panel { border: none; padding: 8px 0; margin: 8px 0; break-inside: avoid; }
+    /* the what-if disclosure must survive on paper */
+    #adjustPanel { border: 2px solid var(--bad); border-radius: 8px; padding: 10px 12px; }
     .scroll-y { max-height: none; overflow: visible; border: none; }
     th { position: static; }
     .chart-wrap { height: 240px; }
@@ -149,17 +186,23 @@
 <body>
 
 <header class="app">
-  <h1>IB DP Results Analyzer</h1>
+  <!-- Official RIS logo (white variant, ris.ae), inlined so nothing is fetched at runtime -->
+  <span class="logo no-print" role="img" aria-label="Raha International School"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 302 76" fill="none" aria-hidden="true"><g clip-path="url(#raha-logo-clip)"><path d="M74.0672 25.2217C77.8946 15.914 73.5067 5.24315 64.2666 1.38775C55.0265 -2.46765 44.4332 1.95235 40.6059 11.2601C36.7785 20.5679 41.1664 31.2387 50.4065 35.0941C59.6466 38.9495 70.2398 34.5295 74.0672 25.2217Z" fill="#1EA270"></path><path d="M34.8367 25.2217C38.6641 15.914 34.2762 5.24315 25.0361 1.38775C15.796 -2.46764 5.20276 1.95236 1.37539 11.2601C-2.45199 20.5679 1.9359 31.2387 11.176 35.0941C20.4161 38.9495 31.0094 34.5295 34.8367 25.2217Z" fill="#1EA270"></path><path d="M75.2223 60.695C76.8247 50.7505 70.1208 41.3803 60.2486 39.7661C50.3764 38.1519 41.0743 44.9049 39.4719 54.8494C37.8694 64.7939 44.5733 74.164 54.4455 75.7783C64.3177 77.3925 73.6198 70.6395 75.2223 60.695Z" fill="#F04E4F"></path><path d="M35.9879 60.6911C37.5904 50.7466 30.8864 41.3764 21.0142 39.7622C11.142 38.148 1.83997 44.901 0.237489 54.8455C-1.36499 64.79 5.33893 74.1601 15.2111 75.7744C25.0833 77.3886 34.3854 70.6356 35.9879 60.6911Z" fill="#1EA270"></path><path d="M97.8854 19.9192H95.3635V24.2928H90.7422V7.85416H98.2114C99.5333 7.82283 100.847 8.07531 102.064 8.59482C102.812 8.94861 103.479 9.45566 104.021 10.0836C104.564 10.7115 104.97 11.4465 105.215 12.2416C105.459 13.0367 105.536 13.8744 105.441 14.7013C105.346 15.5281 105.081 16.326 104.663 17.0437C104.087 17.9516 103.265 18.6739 102.294 19.125L105.817 24.2995H100.85L97.8854 19.9192ZM100.081 12.1339C99.5977 11.7116 98.8813 11.5005 97.9319 11.5005H95.3635V16.3198H97.9319C98.8835 16.3198 99.5999 16.112 100.081 15.6965C100.327 15.4743 100.519 15.1992 100.644 14.8916C100.769 14.584 100.824 14.252 100.803 13.9202C100.822 13.5882 100.766 13.2562 100.642 12.9484C100.517 12.6406 100.325 12.3646 100.081 12.1406V12.1339Z" fill="white"></path><path d="M119.904 21.1036H112.981L111.697 24.3009H106.992L114.209 7.85547H118.76L126 24.3176H121.189L119.904 21.1036ZM118.55 17.6684L116.448 12.4L114.348 17.6684H118.55Z" fill="white"></path><path d="M142.855 7.85547V24.3176H138.231V17.8795H131.943V24.3009H127.305V7.85547H131.943V14.0422H138.231V7.85547H142.855Z" fill="white"></path><path d="M157.073 21.1036H150.163L148.879 24.3009H144.164L151.377 7.85547H155.932L163.168 24.3176H158.357L157.073 21.1036ZM155.719 17.6684L153.62 12.4L151.517 17.6684H155.719Z" fill="white"></path><path d="M93.4444 75.1894C92.3638 74.934 91.3366 74.4881 90.4102 73.8723L91.9273 70.4404C93.543 71.4698 95.4089 72.0311 97.3204 72.0625C99.0938 72.0625 99.9821 71.6134 99.9821 70.722C99.9805 70.4892 99.9064 70.2627 99.7704 70.0745C99.6343 69.8863 99.443 69.7459 99.2235 69.673C98.4323 69.3612 97.615 69.1211 96.7815 68.9558C95.7358 68.743 94.7063 68.4563 93.7006 68.0978C92.8807 67.7963 92.1495 67.2915 91.5746 66.6299C90.9535 65.8628 90.638 64.8903 90.6896 63.9018C90.6794 62.9332 90.9639 61.9847 91.5048 61.1838C92.1186 60.3214 92.9666 59.6557 93.9468 59.2668C95.2165 58.7618 96.5748 58.5224 97.9393 58.563C99.0086 58.5625 100.074 58.6839 101.117 58.925C102.084 59.1394 103.013 59.501 103.871 59.9974L102.447 63.4527C101.066 62.6552 99.508 62.2186 97.916 62.1826C96.9977 62.1826 96.3323 62.32 95.9198 62.5948C95.7295 62.7003 95.5707 62.8549 95.4596 63.0429C95.3485 63.2308 95.2891 63.4452 95.2876 63.6639C95.2895 63.89 95.3632 64.1096 95.4979 64.2905C95.6326 64.4715 95.8212 64.6042 96.0362 64.6693C96.8158 64.9669 97.6211 65.1912 98.4417 65.3396C99.492 65.551 100.526 65.8377 101.536 66.1975C102.351 66.5016 103.08 67.0022 103.658 67.6554C104.29 68.4137 104.611 69.3854 104.557 70.3734C104.565 71.3303 104.28 72.2665 103.742 73.0545C103.12 73.9131 102.27 74.5776 101.29 74.9716C100.029 75.4807 98.6782 75.7248 97.3204 75.6888C96.0124 75.6917 94.7096 75.5238 93.4444 75.1894Z" fill="white"></path><path d="M206.034 75.1894C204.954 74.934 203.926 74.4881 203 73.8723L204.517 70.4404C206.133 71.4698 207.999 72.0311 209.91 72.0625C211.684 72.0625 212.572 71.6134 212.572 70.722C212.57 70.4892 212.496 70.2627 212.36 70.0745C212.224 69.8863 212.033 69.7459 211.813 69.673C211.022 69.3612 210.205 69.1211 209.371 68.9558C208.326 68.743 207.296 68.4563 206.29 68.0978C205.471 67.7963 204.739 67.2915 204.164 66.6299C203.543 65.8628 203.228 64.8903 203.279 63.9018C203.269 62.9332 203.554 61.9847 204.095 61.1838C204.708 60.3214 205.556 59.6557 206.537 59.2668C207.806 58.7618 209.165 58.5224 210.529 58.563C211.598 58.5625 212.664 58.6839 213.706 58.925C214.673 59.1394 215.602 59.501 216.461 59.9974L215.037 63.4527C213.656 62.6552 212.098 62.2186 210.506 62.1826C209.588 62.1826 208.922 62.32 208.51 62.5948C208.319 62.7003 208.161 62.8549 208.049 63.0429C207.938 63.2308 207.879 63.4452 207.877 63.6639C207.879 63.89 207.953 64.1096 208.088 64.2905C208.222 64.4715 208.411 64.6042 208.626 64.6693C209.406 64.9669 210.211 65.1912 211.032 65.3396C212.082 65.551 213.116 65.8377 214.126 66.1975C214.941 66.5016 215.67 67.0022 216.248 67.6554C216.879 68.4137 217.201 69.3854 217.147 70.3734C217.155 71.3303 216.87 72.2665 216.332 73.0545C215.709 73.9131 214.86 74.5776 213.879 74.9716C212.619 75.4807 211.268 75.7248 209.91 75.6888C208.602 75.6917 207.299 75.5238 206.034 75.1894Z" fill="white"></path><path d="M111.128 74.5904C109.798 73.8944 108.687 72.8397 107.918 71.5439C107.153 70.1982 106.75 68.6743 106.75 67.1234C106.75 65.5726 107.153 64.0487 107.918 62.7029C108.687 61.4072 109.798 60.3524 111.128 59.6565C112.551 58.9119 114.136 58.5364 115.74 58.5639C117.127 58.5418 118.503 58.8135 119.779 59.3615C120.949 59.871 121.978 60.6629 122.773 61.6673L119.832 64.3484C118.774 63.0615 117.49 62.418 115.979 62.418C115.152 62.4032 114.335 62.6066 113.61 63.0079C112.925 63.3919 112.366 63.9683 112 64.6668C111.624 65.4303 111.428 66.271 111.428 67.1234C111.428 67.9758 111.624 68.8166 112 69.58C112.363 70.2848 112.923 70.8672 113.61 71.2557C114.335 71.657 115.152 71.8604 115.979 71.8456C117.49 71.8456 118.774 71.2021 119.832 69.9151L122.773 72.5963C121.979 73.6016 120.95 74.3937 119.779 74.902C118.503 75.4512 117.127 75.7241 115.74 75.703C114.135 75.7243 112.55 75.3419 111.128 74.5904Z" fill="white"></path><path d="M141.777 58.8906V75.3528H137.153V68.9315H130.848V75.3528H126.227V58.8906H130.848V65.074H137.153V58.8906H141.777Z" fill="white"></path><path d="M149.576 74.579C148.226 73.8651 147.096 72.793 146.307 71.4787C145.518 70.1644 145.102 68.6579 145.102 67.1221C145.102 65.5863 145.518 64.0798 146.307 62.7655C147.096 61.4512 148.226 60.3791 149.576 59.6652C151.023 58.9399 152.617 58.5625 154.234 58.5625C155.85 58.5625 157.445 58.9399 158.892 59.6652C160.243 60.3783 161.374 61.4501 162.163 62.7645C162.953 64.0789 163.37 65.5859 163.37 67.1221C163.37 68.6583 162.953 70.1653 162.163 71.4797C161.374 72.7941 160.243 73.8659 158.892 74.579C157.445 75.3063 155.851 75.6848 154.234 75.6848C152.617 75.6848 151.023 75.3063 149.576 74.579ZM156.476 71.2276C157.15 70.8285 157.699 70.2482 158.063 69.5519C158.448 68.7911 158.649 67.9492 158.649 67.0953C158.649 66.2413 158.448 65.3995 158.063 64.6387C157.697 63.9485 157.147 63.3743 156.476 62.9798C155.792 62.5931 155.02 62.3901 154.236 62.3901C153.451 62.3901 152.679 62.5931 151.995 62.9798C151.322 63.3732 150.771 63.9477 150.404 64.6387C150.022 65.4002 149.822 66.2418 149.822 67.0953C149.822 67.9488 150.022 68.7904 150.404 69.5519C150.769 70.2491 151.32 70.8295 151.995 71.2276C152.679 71.6142 153.451 71.8173 154.236 71.8173C155.02 71.8173 155.792 71.6142 156.476 71.2276Z" fill="white"></path><path d="M170.248 74.579C168.898 73.8651 167.768 72.793 166.979 71.4787C166.19 70.1644 165.773 68.6579 165.773 67.1221C165.773 65.5863 166.19 64.0798 166.979 62.7655C167.768 61.4512 168.898 60.3791 170.248 59.6652C171.695 58.9399 173.289 58.5625 174.906 58.5625C176.522 58.5625 178.116 58.9399 179.564 59.6652C180.914 60.3783 182.046 61.4501 182.835 62.7645C183.625 64.0789 184.042 65.5859 184.042 67.1221C184.042 68.6583 183.625 70.1653 182.835 71.4797C182.046 72.7941 180.914 73.8659 179.564 74.579C178.117 75.3063 176.522 75.6848 174.906 75.6848C173.289 75.6848 171.694 75.3063 170.248 74.579ZM177.148 71.2276C177.822 70.8285 178.371 70.2482 178.735 69.5519C179.12 68.7911 179.321 67.9492 179.321 67.0953C179.321 66.2413 179.12 65.3995 178.735 64.6387C178.369 63.9485 177.819 63.3743 177.148 62.9798C176.463 62.5931 175.691 62.3901 174.906 62.3901C174.12 62.3901 173.348 62.5931 172.663 62.9798C171.992 63.3743 171.443 63.9485 171.076 64.6387C170.694 65.4002 170.494 66.2418 170.494 67.0953C170.494 67.9488 170.694 68.7904 171.076 69.5519C171.44 70.2482 171.99 70.8285 172.663 71.2276C173.348 71.6142 174.12 71.8172 174.906 71.8172C175.691 71.8172 176.463 71.6142 177.148 71.2276Z" fill="white"></path><path d="M187.352 58.8906H191.973V71.6595H199.771V75.3461H187.352V58.8906Z" fill="white"></path><path d="M90.7422 33.3984H95.3635V49.8606H90.7422V33.3984Z" fill="white"></path><path d="M115.137 33.3984V49.8606H111.33L104.117 41.0899V49.8606H99.5859V33.3984H103.392L110.608 42.1691V33.3984H115.137Z" fill="white"></path><path d="M122.821 37.0928H117.801V33.4062H132.44V37.0928H127.449V49.8617H122.825L122.821 37.0928Z" fill="white"></path><path d="M148.227 46.2645V49.8606H135.105V33.3984H147.915V37.0113H139.68V39.7862H146.943V43.265H139.68V46.2813L148.227 46.2645Z" fill="white"></path><path d="M158.873 45.4897H156.351V49.8466H151.727V33.4012H159.199C160.521 33.369 161.835 33.6215 163.052 34.1418C163.801 34.497 164.468 35.0058 165.01 35.6357C165.552 36.2655 165.958 37.0026 166.201 37.7996C166.444 38.5966 166.519 39.436 166.421 40.2639C166.324 41.0919 166.055 41.8901 165.634 42.6075C165.057 43.5155 164.233 44.2377 163.261 44.6887L166.788 49.8633H161.837L158.873 45.4897ZM161.069 37.7044C160.583 37.2821 159.867 37.071 158.92 37.071H156.351V41.8903H158.92C159.867 41.8903 160.583 41.6825 161.069 41.2669C161.314 41.0443 161.506 40.7691 161.631 40.4617C161.756 40.1542 161.81 39.8223 161.791 39.4907C161.809 39.1577 161.754 38.8247 161.629 38.5157C161.504 38.2068 161.313 37.9297 161.069 37.7044Z" fill="white"></path><path d="M185.488 33.3984V49.8606H181.682L174.469 41.0899V49.8606H169.938V33.3984H173.744L180.96 42.1691V33.3984H185.488Z" fill="white"></path><path d="M200.647 46.6633H193.733L192.452 49.8606H187.734L194.947 33.3984H199.502L206.739 49.8606H201.931L200.647 46.6633ZM199.293 43.2281L197.19 37.9597L195.09 43.2281H199.293Z" fill="white"></path><path d="M210.588 37.0928H205.57V33.4062H220.209V37.0928H215.219V49.8617H210.594L210.588 37.0928Z" fill="white"></path><path d="M222.875 33.3984H227.496V49.8606H222.875V33.3984Z" fill="white"></path><path d="M234.373 49.079C233.023 48.3651 231.893 47.293 231.104 45.9787C230.315 44.6644 229.898 43.1579 229.898 41.6221C229.898 40.0863 230.315 38.5798 231.104 37.2655C231.893 35.9512 233.023 34.8791 234.373 34.1652C235.82 33.4399 237.414 33.0625 239.031 33.0625C240.647 33.0625 242.241 33.4399 243.689 34.1652C245.039 34.8783 246.171 35.9501 246.96 37.2645C247.75 38.5789 248.167 40.0859 248.167 41.6221C248.167 43.1583 247.75 44.6653 246.96 45.9797C246.171 47.2941 245.039 48.3659 243.689 49.079C242.242 49.8063 240.647 50.1848 239.031 50.1848C237.414 50.1848 235.819 49.8063 234.373 49.079ZM241.273 45.7276C241.944 45.333 242.494 44.7588 242.86 44.0686C243.243 43.3071 243.442 42.4656 243.442 41.612C243.442 40.7585 243.243 39.917 242.86 39.1555C242.494 38.4653 241.944 37.891 241.273 37.4965C240.588 37.1099 239.816 36.9069 239.031 36.9069C238.245 36.9069 237.473 37.1099 236.788 37.4965C236.117 37.891 235.568 38.4653 235.201 39.1555C234.819 39.917 234.619 40.7585 234.619 41.612C234.619 42.4656 234.819 43.3071 235.201 44.0686C235.568 44.7588 236.117 45.333 236.788 45.7276C237.473 46.1142 238.245 46.3172 239.031 46.3172C239.816 46.3172 240.588 46.1142 241.273 45.7276Z" fill="white"></path><path d="M266.09 33.3984V49.8606H262.284L255.067 41.0899V49.8606H250.539V33.3984H254.345L261.558 42.1691V33.3984H266.09Z" fill="white"></path><path d="M281.245 46.6633H274.345L273.06 49.8606H268.336L275.549 33.3984H280.104L287.34 49.8606H282.529L281.245 46.6633ZM279.891 43.2281L277.791 37.9597L275.675 43.2281H279.891Z" fill="white"></path><path d="M289.578 33.3984H294.199V46.1707H301.998V49.8572H289.578V33.3984Z" fill="white"></path></g><defs><clipPath id="raha-logo-clip"><rect width="302" height="76" fill="white"></rect></clipPath></defs></svg></span>
+  <div class="titles">
+    <h1><span class="print-only">Raha International School &mdash; </span>IB DP Results Analyzer</h1>
+    <span class="campus">Khalifa City Campus</span>
+  </div>
   <span class="sub" id="headerSession">No file loaded</span>
   <span class="sub print-only" id="printDate"></span>
 </header>
 
 <main>
-  <div id="dropzone" class="no-print">
+  <div id="dropzone" class="no-print" role="button" tabindex="0"
+       aria-label="Drop the IBIS results PDF here, or press Enter to choose files">
     <h2>Drop the IBIS &ldquo;Results summary&rdquo; PDF here</h2>
     <p>or click to choose files &mdash; optionally drop the student masterlist (.xlsx / .csv) with it for gender &amp; nationality breakdowns</p>
     <p class="privacy">100% client-side &mdash; the PDF and masterlist are parsed in your browser and never uploaded anywhere.</p>
-    <div id="parseProgress"></div>
+    <div id="parseProgress" aria-live="polite"></div>
     <input type="file" id="fileInput" accept="application/pdf,.pdf,.xlsx,.xls,.csv" multiple>
   </div>
 
@@ -171,12 +214,19 @@
       <input type="file" id="masterInput" accept=".xlsx,.xls,.csv" class="hidden">
       <label class="toggle"><input type="checkbox" id="anonToggle"> Anonymize names</label>
       <button id="btnReset">Load another file</button>
-      <span id="statusLine"></span>
+      <span id="statusLine" aria-live="polite"></span>
     </div>
 
     <section class="panel" id="warnPanel">
       <h2>Parse warnings (<span id="warnCount">0</span>)</h2>
       <ul id="warnList"></ul>
+    </section>
+
+    <!-- Not .no-print on purpose: if exclusions are active, every printed
+         page carries this disclosure alongside the adjusted figures -->
+    <section class="panel" id="adjustPanel">
+      <h2>What-if view &mdash; adjusted figures, not official results</h2>
+      <div id="adjustInfo"></div>
     </section>
 
     <section class="panel" id="testPanel">
@@ -266,8 +316,15 @@
 
     <section class="panel no-print" id="candPanel">
       <h2>All candidates</h2>
-      <div style="margin-bottom:10px;">
+      <div style="margin-bottom:10px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
         <input type="search" id="candSearch" placeholder="Search name / candidate number&hellip;">
+        <button id="btnExclRetakes" title="What-if: remove RETAKE-category candidates from every statistic">Exclude retakes</button>
+        <button id="btnRestoreAll2">Restore all</button>
+        <span style="color:var(--muted); font-size:12.5px; flex:1; min-width:260px;">
+          Untick a candidate to re-run every statistic without them (e.g. late entrants).
+          Exclusions are flagged prominently on screen, on the print summary and in the
+          Excel export &mdash; adjusted figures are never presented as official results.
+        </span>
       </div>
       <div class="scroll-y"><table id="candTable"></table></div>
     </section>
@@ -332,6 +389,7 @@ const state = {
   worldAvg: null,        // IB world average total points in use (official or custom)
   worldAvgMode: null,    // "official" | "custom" | null
   worldAvgSession: null, // session key into WORLD_AVERAGES when mode === "official"
+  excluded: new Set(),   // candidateNos excluded from stats (what-if view, always disclosed)
 };
 
 /* ================= IB world averages (official) =================
@@ -380,14 +438,16 @@ const MASTER_COLS = {
   dob:         ["date of birth", "dob", "birth date", "birthdate"],
   gender:      ["gender", "sex"],
   nationality: ["nationality", "nationalities", "citizenship"],
+  yearLevel:   ["year level", "year group", "year", "grade", "grade level", "nc year", "curriculum year", "form", "form group"],
 };
 const EMIRATI_VALUES = new Set(["emirati", "united arab emirates", "uae", "uae national", "emirian"]);
 const MATCH_LABELS = {
-  code:    "Candidate code",
-  exact:   "DOB + full name",
-  dobsur:  "DOB + surname (first name differs)",
-  dobfore: "DOB + first name (surname differs)",
-  name:    "Name only (no DOB to confirm)",
+  code:     "Candidate code",
+  exact:    "DOB + full name",
+  dobsur:   "DOB + surname (first name differs)",
+  dobfore:  "DOB + first name (surname differs)",
+  nameyear: "Full name + year level (DOB not confirmed)",
+  name:     "Name only (no DOB to confirm)",
 };
 
 // strip case, accents, spaces, hyphens, apostrophes: "Al Hashmi" === "AlHashmi"
@@ -481,7 +541,10 @@ function parseMasterlist(buf, fileName) {
       dob: cellDobIso(get("dob")),
       gender: get("gender"),
       nationality: String(get("nationality") ?? "").trim(),
+      yearLevel: String(get("yearLevel") ?? "").trim(),
     };
+    const ym = s.yearLevel.match(/\d{1,2}/);   // "Year 13", "Y13", "Grade 12", "13B" -> 13 / 12
+    s.ynum = ym ? Number(ym[0]) : null;
     if (s.forename && s.surname) {
       s.nfirst = normPart(s.forename.split(/\s+/)[0]);
       s.nsur = normPart(s.surname);
@@ -497,7 +560,7 @@ function parseMasterlist(buf, fileName) {
   if (!students.length) throw new Error("no student rows found under the header row.");
 
   const used = Object.entries(map).map(([k, i]) => `${k}: "${headers[i]}"`).join(", ");
-  state.master = { fileName, students, used, hasCode: map.code !== undefined };
+  state.master = { fileName, students, used, hasCode: map.code !== undefined, hasYear: map.yearLevel !== undefined };
 }
 
 /* ---- join masterlist rows to parsed candidates ---- */
@@ -518,6 +581,18 @@ function computeMatches() {
     }
   }
 
+  /* Graduating-cohort scope: when the masterlist has a year-level column, the
+     DP results cohort is taken as the highest numeric year present. This lets
+     full-name matching still work when candidate codes / DOBs are unusable
+     (mock PDFs, data-entry errors) without picking up same-name students in
+     lower years. Such matches are flagged for review, never trusted silently;
+     code and DOB+name joins always take precedence when they hit. */
+  let dpYear = null;
+  if (state.master.hasYear) {
+    const ys = state.master.students.map(s => s.ynum).filter(y => y !== null);
+    if (ys.length) dpYear = Math.max(...ys);
+  }
+
   for (const c of state.candidates) {
     const nsur = normPart(c.surname);
     const nfirst = normPart((c.givenNames || "").split(/\s+/)[0] || "");
@@ -536,10 +611,16 @@ function computeMatches() {
       if (h.length) hits = h;
     }
     if (!hits && nsur && nfirst) {
-      const h = byName.get(nsur + "|" + nfirst) || [];
+      let h = byName.get(nsur + "|" + nfirst) || [];
+      if (dpYear !== null) h = h.filter(s => s.ynum === dpYear || s.ynum === null);
       if (h.length) {
         if (!dob || h.every(s => !s.dob)) { hits = h; method = "name"; }
-        else note = `Same name found in masterlist but DOB differs: PDF ${dob} vs ${h.map(s => s.dob || "?").join(", ")} - check for a data-entry error`;
+        else if (dpYear !== null) {
+          hits = h; method = "nameyear";
+          note = `DOB differs (PDF ${dob} vs ${h.map(s => s.dob || "?").join(", ")}) - matched by full name within year ${dpYear}; verify`;
+        } else {
+          note = `Same name found in masterlist but DOB differs: PDF ${dob} vs ${h.map(s => s.dob || "?").join(", ")} - check for a data-entry error`;
+        }
       }
     }
 
@@ -760,11 +841,19 @@ async function parsePdf(data, sourceLabel) {
 function resetState() {
   state.session = null; state.schoolCode = null; state.datePrinted = null;
   state.pages = 0; state.candidates = []; state.subjects = []; state.warnings = [];
+  state.excluded = new Set();
 }
 
-/* ================= Aggregations ================= */
+/* ================= Aggregations =================
+   Every statistic flows through activeCandidates()/currentSubjects(),
+   so the what-if exclusion set applies everywhere at once - and the
+   adjust banner (renderAdjusted) is the single place that discloses it. */
+function activeCandidates() {
+  return state.candidates.filter(c => !state.excluded.has(c.candidateNo));
+}
 function currentSubjects({ lettersToo = false } = {}) {
   return state.subjects.filter(s =>
+    !state.excluded.has(s.candidateNo) &&
     !s.additional &&
     (lettersToo ? true : s.gradeNumeric !== null) &&
     (s.level === "HL" || s.level === "SL") &&
@@ -772,7 +861,7 @@ function currentSubjects({ lettersToo = false } = {}) {
   );
 }
 function diplomaTrack() {
-  return state.candidates.filter(c => c.category !== "COURSE");
+  return activeCandidates().filter(c => c.category !== "COURSE");
 }
 function computeKpis() {
   const dip = diplomaTrack();
@@ -804,6 +893,7 @@ function pointsHistogram() {
 function subjectSummary() {
   const rows = new Map();
   for (const s of state.subjects) {
+    if (state.excluded.has(s.candidateNo)) continue;
     if (s.additional || s.session !== state.session) continue;
     if (s.level !== "HL" && s.level !== "SL") continue;
     const key = s.subjectDisplay + "||" + s.level;
@@ -825,6 +915,7 @@ function subjectSummary() {
 function letterDist(level) {
   const d = { A: 0, B: 0, C: 0, D: 0, E: 0, N: 0 };
   for (const s of state.subjects) {
+    if (state.excluded.has(s.candidateNo)) continue;
     if (s.additional || s.level !== level || s.session !== state.session) continue;
     if (d[s.grade] === undefined) continue;
     d[s.grade]++;
@@ -850,7 +941,8 @@ function renderAll() {
     Object.entries(catCounts).map(([k, v]) => `${v} ${k}`).join(", ") + ")";
   $("printDate").textContent = ` · printed ${new Date().toLocaleDateString()}`;
   $("statusLine").textContent =
-    `${state.pages} pages parsed · ${state.candidates.length} candidates · ${state.subjects.length} subject rows · ${state.warnings.length} warnings`;
+    `${state.pages} pages parsed · ${state.candidates.length} candidates · ${state.subjects.length} subject rows · ${state.warnings.length} warnings` +
+    (state.excluded.size ? ` · ${state.excluded.size} excluded (what-if)` : "");
 
   // warnings
   $("warnCount").textContent = state.warnings.length;
@@ -858,9 +950,39 @@ function renderAll() {
     ? state.warnings.map(w => `<li>${esc(w)}</li>`).join("")
     : "<li>No warnings - every page parsed cleanly.</li>";
 
+  renderAdjusted();
   renderKpis(); renderHighlights(); renderPointsChart(); renderSubjectTable();
   renderGradeCharts(); renderFailTable(); renderCandTable();
   renderMasterPanel(); renderGroupPanel();
+}
+
+/* ================= What-if disclosure banner =================
+   The exclusion set is never silent: whenever it is non-empty this banner
+   shows on screen AND on paper, lists who is excluded, and puts the
+   official figures next to the adjusted ones. */
+function computeKpisOfficial() {
+  const saved = state.excluded;
+  state.excluded = new Set();
+  try { return computeKpis(); } finally { state.excluded = saved; }
+}
+function renderAdjusted() {
+  const panel = $("adjustPanel");
+  const n = state.excluded.size;
+  panel.classList.toggle("hidden", n === 0);
+  if (!n) { $("adjustInfo").innerHTML = ""; return; }
+  const excl = state.candidates.filter(c => state.excluded.has(c.candidateNo));
+  const list = excl.map(c => state.anonymize ? c.candidateNo : `${c.candidateNo} ${c.name}`).join("; ");
+  const off = computeKpisOfficial(), adj = computeKpis();
+  $("adjustInfo").innerHTML =
+    `<p><b>${n} of ${state.candidates.length} candidates are excluded</b> from every figure, chart, ` +
+    `print summary and Excel export on this page. These are what-if numbers for internal analysis ` +
+    `&mdash; <b>not the official results</b>.</p>` +
+    `<p>Excluded: ${esc(list)}</p>` +
+    `<p>Official &rarr; adjusted: pass rate ${pct(off.passRate)} &rarr; <b>${pct(adj.passRate)}</b> &middot; ` +
+    `average points ${fmt(off.avgPts, 1)} &rarr; <b>${fmt(adj.avgPts, 1)}</b> &middot; ` +
+    `average grade ${fmt(off.avgGrade, 2)} &rarr; <b>${fmt(adj.avgGrade, 2)}</b>.</p>` +
+    `<button id="btnRestoreAll" class="no-print">Restore all candidates</button>`;
+  $("btnRestoreAll").onclick = () => { state.excluded.clear(); renderAll(); };
 }
 
 function renderKpis() {
@@ -892,12 +1014,12 @@ function computeHighlights() {
   const sevens = cur.filter(s => s.gradeNumeric === 7).length;
   const byCand = new Map();
   for (const s of cur) (byCand.get(s.candidateNo) || byCand.set(s.candidateNo, []).get(s.candidateNo)).push(s.gradeNumeric);
-  const sweeps = state.candidates.filter(c => {
+  const sweeps = activeCandidates().filter(c => {
     const g = byCand.get(c.candidateNo);
     return g && g.length >= 6 && g.every(x => x === 7);
   });
 
-  const nearMiss = state.candidates
+  const nearMiss = activeCandidates()
     .filter(c => c.result === "Diploma not awarded" && c.totalPoints !== null && c.totalPoints >= 22)
     .sort((a, b) => b.totalPoints - a.totalPoints);
 
@@ -1005,22 +1127,24 @@ const meanLinePlugin = {
       ctx.save();
       ctx.strokeStyle = color; ctx.setLineDash([5, 4]); ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.moveTo(px, ys.top); ctx.lineTo(px, ys.bottom); ctx.stroke();
-      ctx.fillStyle = color; ctx.font = "11px Segoe UI";
+      ctx.fillStyle = color; ctx.font = '11px Poppins, "Segoe UI", sans-serif';
       ctx.fillText(label, px + 5, ys.top + dy);
       ctx.restore();
     };
-    if (opts.mean !== null && opts.mean !== undefined) draw(opts.mean, "#b3372f", `mean ${opts.mean.toFixed(1)}`, 12);
+    if (opts.mean !== null && opts.mean !== undefined) draw(opts.mean, "#d43d3e", `mean ${opts.mean.toFixed(1)}`, 12);
     if (opts.world !== null && opts.world !== undefined) draw(opts.world, "#8a6d1a", `world ${Number(opts.world).toFixed(1)}`, 26);
   }
 };
 Chart.register(meanLinePlugin);
+Chart.defaults.font.family = '"Poppins", "Segoe UI", system-ui, sans-serif';
+Chart.defaults.color = "#344042";
 
 function renderPointsChart() {
   const h = pointsHistogram();
   $("ptsSub").textContent = h.mean !== null ? `(diploma-track, mean ${h.mean.toFixed(1)})` : "";
   makeChart("pointsChart", {
     type: "bar",
-    data: { labels: h.labels, datasets: [{ data: h.counts, backgroundColor: "#14557b", label: "Candidates" }] },
+    data: { labels: h.labels, datasets: [{ data: h.counts, backgroundColor: "#1ea270", label: "Candidates" }] },
     options: {
       plugins: { legend: { display: false }, meanLine: { mean: h.mean, world: state.worldAvg } },
       scales: { y: { beginAtZero: true, ticks: { precision: 0 } }, x: { title: { display: true, text: "Total points" } } },
@@ -1074,7 +1198,7 @@ function renderSubjectTable() {
 function renderGradeCharts() {
   const cur = currentSubjects({ lettersToo: true });
   const levels = ["HL", "SL"];
-  const colors = { HL: "#14557b", SL: "#6da3c0" };
+  const colors = { HL: "#1ea270", SL: "#a4d02a" };
   makeChart("gradesChart", {
     type: "bar",
     data: {
@@ -1086,7 +1210,7 @@ function renderGradeCharts() {
     },
     options: { plugins: { legend: { position: "top" } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } }, x: { title: { display: true, text: "Grade (current session subject entries)" } } } },
   });
-  for (const [id, lvl, color] of [["eeChart", "EE", "#1f7a4d"], ["tokChart", "TK", "#8a6d1a"]]) {
+  for (const [id, lvl, color] of [["eeChart", "EE", "#1ea270"], ["tokChart", "TK", "#344042"]]) {
     const d = letterDist(lvl);
     makeChart(id, {
       type: "bar",
@@ -1097,7 +1221,7 @@ function renderGradeCharts() {
 }
 
 function renderFailTable() {
-  const rows = state.candidates.filter(c => c.result === "Diploma not awarded");
+  const rows = activeCandidates().filter(c => c.result === "Diploma not awarded");
   let html = `<thead><tr><th>Candidate #</th><th class="name-col">Name</th><th>Category</th><th class="num">Total points</th><th>Reason (first diploma requirements code)</th></tr></thead><tbody>`;
   for (const c of rows) {
     html += `<tr><td>${esc(c.candidateNo)}</td><td class="name-col">${esc(candLabel(c))}</td><td>${esc(c.category)}</td>` +
@@ -1112,11 +1236,18 @@ function renderCandTable() {
   const rows = state.candidates.filter(c =>
     !q || (c.name || "").toLowerCase().includes(q) || (c.candidateNo || "").includes(q) ||
     (c.personalCode || "").toLowerCase().includes(q));
-  let html = `<thead><tr><th>#</th><th>Name</th><th>Category</th><th class="num">HL</th><th class="num">SL</th>` +
+  let html = `<thead><tr><th title="Untick to exclude this candidate from every statistic (what-if view)">In stats</th>` +
+    `<th>#</th><th>Name</th><th>Category</th><th class="num">HL</th><th class="num">SL</th>` +
     `<th>EE</th><th>TOK</th><th class="num">EE/TOK pts</th><th class="num">Total</th><th>Result</th><th>CAS</th></tr></thead><tbody>`;
   for (const c of rows) {
     const pill = c.result === "Diploma not awarded" ? "bad" : (c.result ? "ok" : "mid");
-    html += `<tr><td>${esc(c.candidateNo)}</td><td>${esc(candLabel(c))}</td><td>${esc(c.category)}</td>` +
+    const excl = c.candidateNo && state.excluded.has(c.candidateNo);
+    const box = c.candidateNo
+      ? `<input type="checkbox" data-cand="${esc(c.candidateNo)}"${excl ? "" : " checked"}` +
+        ` aria-label="Include candidate ${esc(c.candidateNo)} in statistics">`
+      : "–";
+    html += `<tr${excl ? ' class="excl"' : ""}><td style="text-align:center">${box}</td>` +
+      `<td>${esc(c.candidateNo)}</td><td>${esc(candLabel(c))}</td><td>${esc(c.category)}</td>` +
       `<td class="num">${c.hlCount}</td><td class="num">${c.slCount}</td>` +
       `<td>${esc(c.eeGrade ? `${c.eeGrade} (${c.eeSubject})` : "–")}</td><td>${esc(c.tokGrade || "–")}</td>` +
       `<td class="num">${c.eeTokPoints ?? "–"}</td><td class="num">${c.totalPoints ?? "–"}</td>` +
@@ -1124,24 +1255,30 @@ function renderCandTable() {
       `<td>${c.casSatisfied ? "✓" : (c.casRaw ? "✗" : "–")}</td></tr>`;
   }
   $("candTable").innerHTML = html + "</tbody>";
+  $("candTable").querySelectorAll("input[data-cand]").forEach(cb => cb.addEventListener("change", e => {
+    if (e.target.checked) state.excluded.delete(e.target.dataset.cand);
+    else state.excluded.add(e.target.dataset.cand);
+    renderAll();
+  }));
 }
 
 /* ================= Masterlist panels ================= */
-const GROUP_COLORS = ["#14557b", "#c05a2e", "#1f7a4d", "#8a6d1a", "#6da3c0", "#b3372f", "#4d9963", "#d99a37"];
+const GROUP_COLORS = ["#1ea270", "#f04e4f", "#344042", "#a4d02a", "#8a6d1a", "#4a90b8", "#7b5ea7", "#d99a37"];
 
 function groupsFor(mode) {
   const raw = c => (mode === "gender" ? c.gender : mode === "emirati" ? c.emirati : c.natPrimary) || "Unknown";
+  const cands = activeCandidates();
   if (mode === "nationality") {
     const counts = new Map();
-    for (const c of state.candidates) { const k = raw(c); if (k !== "Unknown") counts.set(k, (counts.get(k) || 0) + 1); }
+    for (const c of cands) { const k = raw(c); if (k !== "Unknown") counts.set(k, (counts.get(k) || 0) + 1); }
     const top = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 7).map(([k]) => k);
     const names = [...top];
     if ([...counts.keys()].some(k => !top.includes(k))) names.push("Other");
-    if (state.candidates.some(c => raw(c) === "Unknown")) names.push("Unknown");
+    if (cands.some(c => raw(c) === "Unknown")) names.push("Unknown");
     return { names, keyOf: c => { const k = raw(c); return k === "Unknown" ? "Unknown" : (top.includes(k) ? k : "Other"); } };
   }
   const fixed = mode === "gender" ? ["Male", "Female"] : ["Emirati", "Non-Emirati"];
-  const present = new Set(state.candidates.map(raw));
+  const present = new Set(cands.map(raw));
   const names = fixed.filter(n => present.has(n));
   for (const p of present) if (!names.includes(p) && p !== "Unknown") names.push(p);
   if (present.has("Unknown")) names.push("Unknown");
@@ -1151,7 +1288,7 @@ function groupsFor(mode) {
 function groupMetrics(names, keyOf) {
   const subj = currentSubjects();
   return names.map(g => {
-    const cands = state.candidates.filter(c => keyOf(c) === g);
+    const cands = activeCandidates().filter(c => keyOf(c) === g);
     const nos = new Set(cands.map(c => c.candidateNo));
     const dip = cands.filter(c => c.category !== "COURSE");
     const withResult = dip.filter(c => KNOWN_RESULTS.includes(c.result));
@@ -1249,17 +1386,18 @@ function renderMasterPanel() {
 
   const flagged = [...review.map(c => ["check", c]), ...unmatched.map(c => ["unmatched", c])];
   let html = `<thead><tr><th>#</th><th class="name-col">Name (PDF)</th><th>Birth date</th><th>Status</th>` +
-    `<th>Match</th><th class="name-col">Masterlist row</th><th>Gender</th><th>Nationality</th><th>Note</th></tr></thead><tbody>`;
+    `<th>Match</th><th class="name-col">Masterlist row</th><th>Year</th><th>Gender</th><th>Nationality</th><th>Note</th></tr></thead><tbody>`;
   for (const [kind, c] of flagged) {
     const s = c.match && c.match.student;
     html += `<tr><td>${esc(c.candidateNo)}</td><td class="name-col">${esc(candLabel(c))}</td><td>${esc(c.birthDate || "–")}</td>` +
       `<td><span class="pill ${kind === "unmatched" ? "bad" : "mid"}">${kind === "unmatched" ? "unmatched" : "check"}</span></td>` +
       `<td>${esc(c.match && c.match.method ? MATCH_LABELS[c.match.method] : "–")}</td>` +
       `<td class="name-col">${esc(s ? (state.anonymize ? "(hidden)" : `${s.fullName}${s.dob ? " · " + s.dob : ""}`) : "–")}</td>` +
+      `<td>${esc(s ? (s.yearLevel || "–") : "–")}</td>` +
       `<td>${esc(s ? normGender(s.gender) : "–")}</td><td>${esc(s ? (s.nationality || "–") : "–")}</td>` +
       `<td>${esc((c.match && c.match.note) || "")}</td></tr>`;
   }
-  if (!flagged.length) html += `<tr><td colspan="9">All candidates matched exactly (candidate code or DOB + full name) 🎉</td></tr>`;
+  if (!flagged.length) html += `<tr><td colspan="10">All candidates matched exactly (candidate code or DOB + full name) 🎉</td></tr>`;
   $("matchTable").innerHTML = html + "</tbody>";
 }
 
@@ -1280,16 +1418,20 @@ function exportExcel() {
   };
 
   const wm = !!state.master;
+  const adj = state.excluded.size > 0;
   const matchLabel = c => c.match && c.match.student
     ? MATCH_LABELS[c.match.method] || "Matched" : "Unmatched";
+  // all candidates are always exported; exclusions are flagged, never dropped
   sheet("Candidates",
     ["Candidate No", "Personal Code", "Name", "Surname", "Given Names", "Category", "Birth Date",
      "EE Subject", "EE Grade", "TOK Grade", "EE/TOK Points", "Total Points", "Result", "CAS Satisfied",
      "Fail Reason", "Subjects", "HL", "SL",
+     ...(adj ? ["In Statistics"] : []),
      ...(wm ? ["Gender", "Nationality", "Emirati", "Masterlist Match"] : [])],
     state.candidates.map(c => [c.candidateNo, c.personalCode, c.name, c.surname, c.givenNames, c.category,
       c.birthDate, c.eeSubject, c.eeGrade, c.tokGrade, c.eeTokPoints, c.totalPoints, c.result,
       c.casSatisfied ? "Yes" : "No", c.failReason, c.subjectCount, c.hlCount, c.slCount,
+      ...(adj ? [state.excluded.has(c.candidateNo) ? "EXCLUDED (what-if)" : "Yes"] : []),
       ...(wm ? [c.gender, c.match && c.match.student ? c.match.student.nationality : "", c.emirati, matchLabel(c)] : [])]));
 
   if (wm) {
@@ -1309,11 +1451,11 @@ function exportExcel() {
       gRows);
 
     sheet("Match Review",
-      ["Candidate No", "Name", "Birth Date", "Match", "Masterlist Name", "Masterlist DOB", "Gender", "Nationality", "Emirati", "Note"],
+      ["Candidate No", "Name", "Birth Date", "Match", "Masterlist Name", "Masterlist DOB", "Year Level", "Gender", "Nationality", "Emirati", "Note"],
       state.candidates.map(c => {
         const s = c.match && c.match.student;
         return [c.candidateNo, c.name, c.birthDate, matchLabel(c),
-          s ? s.fullName : "", s ? s.dob : "", c.gender, s ? s.nationality : "", c.emirati,
+          s ? s.fullName : "", s ? s.dob : "", s ? s.yearLevel : "", c.gender, s ? s.nationality : "", c.emirati,
           (c.match && c.match.note) || ""];
       }));
   }
@@ -1335,6 +1477,12 @@ function exportExcel() {
 
   const k = computeKpis();
   sheet("Summary", ["Metric", "Value"], [
+    ...(adj ? [
+      ["*** ADJUSTED (WHAT-IF) EXPORT ***", `${state.excluded.size} of ${state.candidates.length} candidates excluded - NOT the official results`],
+      ["Excluded candidates", state.candidates.filter(c => state.excluded.has(c.candidateNo))
+        .map(c => `${c.candidateNo} ${c.name}`).join("; ")],
+      ["", ""]] : []),
+    ["School", "Raha International School - Khalifa City Campus"],
     ["Session", state.session], ["School code", state.schoolCode], ["Date printed (on PDF)", state.datePrinted],
     ["Candidates", state.candidates.length],
     ...Object.entries(state.candidates.reduce((a, c) => (a[c.category] = (a[c.category] || 0) + 1, a), {}))
@@ -1380,29 +1528,53 @@ function exportExcel() {
     ...H.nearMiss.map(c => [`${c.candidateNo} - ${c.name}`, `${c.totalPoints} pts - ${c.failReason || ""}`]),
   ], false);
 
-  const fname = `IB_Results_${(state.session || "session").replace(/\s+/g, "_")}.xlsx`;
+  const fname = `IB_Results_${(state.session || "session").replace(/\s+/g, "_")}${adj ? "_ADJUSTED" : ""}.xlsx`;
   XLSX.writeFile(wb, fname);
 }
 
-/* ================= Test mode (fixture validation) ================= */
-async function runTests() {
+/* ================= Test mode (fixture validation) =================
+   Expected counts per known fixture, keyed by filename. Add a block here
+   whenever a new fixture PDF is adopted (parse it once, note the counts). */
+const FIXTURE_EXPECTED = {
+  "May_2025_results_RAHA.pdf": {
+    candidates: 141, DIPLOMA: 136, COURSE: 4, RETAKE: 1,
+    awarded: 115, bilingual: 5, notAwarded: 17, cas: 137, maxPts: 43,
+    session: "MAY 2025", school: "003271", additional: 5, failReasons: 17,
+  },
+  "May_2026_results_RahaKCC_MOCK.pdf": {
+    candidates: 45, DIPLOMA: 43, COURSE: 2, RETAKE: 0,
+    awarded: 40, bilingual: 1, notAwarded: 2, cas: 43, maxPts: 42,
+    session: "MAY 2026", school: "063333", additional: 0, failReasons: 2,
+  },
+};
+
+async function runTests(fixtureName) {
+  const exp = FIXTURE_EXPECTED[fixtureName];
+  if (!exp) {
+    $("testPanel").classList.remove("hidden");
+    $("testResults").innerHTML =
+      `<p>No expected counts recorded for fixture &ldquo;${esc(fixtureName)}&rdquo; &mdash; parsed ` +
+      `${state.candidates.length} candidates, ${state.subjects.length} subject rows, ` +
+      `${state.warnings.length} warnings. Add a block to <code>FIXTURE_EXPECTED</code> to assert.</p>`;
+    return null;
+  }
   const checks = [];
   const eq = (label, actual, expected) => checks.push({ label, actual, expected, ok: actual === expected });
   const cats = state.candidates.reduce((a, c) => (a[c.category] = (a[c.category] || 0) + 1, a), {});
   const res = state.candidates.reduce((a, c) => (a[c.result] = (a[c.result] || 0) + 1, a), {});
-  eq("Candidates (pages)", state.candidates.length, 141);
-  eq("Category DIPLOMA", cats.DIPLOMA || 0, 136);
-  eq("Category COURSE", cats.COURSE || 0, 4);
-  eq("Category RETAKE", cats.RETAKE || 0, 1);
-  eq("Diploma awarded", res["Diploma awarded"] || 0, 115);
-  eq("Bilingual Diploma awarded", res["Bilingual Diploma awarded"] || 0, 5);
-  eq("Diploma not awarded", res["Diploma not awarded"] || 0, 17);
-  eq("CAS satisfied", state.candidates.filter(c => c.casSatisfied).length, 137);
-  eq("Max total points", Math.max(...state.candidates.filter(c => c.totalPoints !== null).map(c => c.totalPoints)), 43);
-  eq("Session detected", state.session, "MAY 2025");
-  eq("School code detected", state.schoolCode, "003271");
-  eq("Additional subject rows", state.subjects.filter(s => s.additional).length, 5);
-  eq("Fail reasons captured", state.candidates.filter(c => c.result === "Diploma not awarded" && c.failReason).length, 17);
+  eq("Candidates (pages)", state.candidates.length, exp.candidates);
+  eq("Category DIPLOMA", cats.DIPLOMA || 0, exp.DIPLOMA);
+  eq("Category COURSE", cats.COURSE || 0, exp.COURSE);
+  eq("Category RETAKE", cats.RETAKE || 0, exp.RETAKE);
+  eq("Diploma awarded", res["Diploma awarded"] || 0, exp.awarded);
+  eq("Bilingual Diploma awarded", res["Bilingual Diploma awarded"] || 0, exp.bilingual);
+  eq("Diploma not awarded", res["Diploma not awarded"] || 0, exp.notAwarded);
+  eq("CAS satisfied", state.candidates.filter(c => c.casSatisfied).length, exp.cas);
+  eq("Max total points", Math.max(...state.candidates.filter(c => c.totalPoints !== null).map(c => c.totalPoints)), exp.maxPts);
+  eq("Session detected", state.session, exp.session);
+  eq("School code detected", state.schoolCode, exp.school);
+  eq("Additional subject rows", state.subjects.filter(s => s.additional).length, exp.additional);
+  eq("Fail reasons captured", state.candidates.filter(c => c.result === "Diploma not awarded" && c.failReason).length, exp.failReasons);
 
   const allOk = checks.every(c => c.ok);
   $("testPanel").classList.remove("hidden");
@@ -1463,6 +1635,9 @@ async function handleFiles(fileList) {
 
 const dz = $("dropzone");
 dz.addEventListener("click", () => $("fileInput").click());
+dz.addEventListener("keydown", e => {
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("fileInput").click(); }
+});
 $("fileInput").addEventListener("change", e => { handleFiles(e.target.files); e.target.value = ""; });
 ["dragover", "dragenter"].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add("drag"); }));
 ["dragleave", "drop"].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove("drag"); }));
@@ -1479,7 +1654,12 @@ $("btnReset").addEventListener("click", () => {
   showProgress(state.master
     ? `Masterlist "${state.master.fileName}" is still loaded and will be matched to the next PDF.` : "");
 });
-$("anonToggle").addEventListener("change", e => { state.anonymize = e.target.checked; renderHighlights(); renderFailTable(); renderCandTable(); renderMasterPanel(); });
+$("anonToggle").addEventListener("change", e => { state.anonymize = e.target.checked; renderAdjusted(); renderHighlights(); renderFailTable(); renderCandTable(); renderMasterPanel(); });
+$("btnExclRetakes").addEventListener("click", () => {
+  for (const c of state.candidates) if (c.category === "RETAKE" && c.candidateNo) state.excluded.add(c.candidateNo);
+  renderAll();
+});
+$("btnRestoreAll2").addEventListener("click", () => { state.excluded.clear(); renderAll(); });
 $("groupBy").addEventListener("change", e => { state.groupBy = e.target.value; renderGroupPanel(); });
 $("worldAvgSelect").innerHTML =
   `<option value="">— none —</option>` +
@@ -1508,9 +1688,13 @@ $("levelFilter").addEventListener("change", e => { state.levelFilter = e.target.
 $("candSearch").addEventListener("input", renderCandTable);
 $("warnPanel").classList.add("hidden");
 $("testPanel").classList.add("hidden");
+$("adjustPanel").classList.add("hidden");
 
-// crisp charts when printing
-window.addEventListener("beforeprint", () => { for (const c of Object.values(state.charts)) c.resize(); });
+// crisp charts and a fresh date when printing
+window.addEventListener("beforeprint", () => {
+  $("printDate").textContent = ` · printed ${new Date().toLocaleDateString()}`;
+  for (const c of Object.values(state.charts)) c.resize();
+});
 
 /* Test mode: ONLY when explicitly requested via ?test=1, fetch the local
    fixture PDF sitting next to index.html (dev server only - the fixture is
@@ -1518,7 +1702,7 @@ window.addEventListener("beforeprint", () => { for (const c of Object.values(sta
 (async function init() {
   const params = new URLSearchParams(location.search);
   if (!params.has("test")) return;
-  const fixture = params.get("test") === "1" || params.get("test") === "" ? "May_2025_results_RAHA.pdf" : params.get("test");
+  const fixture = params.get("test") === "1" || params.get("test") === "" ? "May_2026_results_RahaKCC_MOCK.pdf" : params.get("test");
   try {
     const resp = await fetch(fixture);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -1530,7 +1714,7 @@ window.addEventListener("beforeprint", () => { for (const c of Object.values(sta
     $("dashboard").classList.remove("hidden");
     renderAll();
     $("warnPanel").classList.remove("hidden");
-    await runTests();
+    await runTests(fixture.split("/").pop());
   } catch (err) {
     console.error(err);
     showProgress(`Test mode: could not load fixture "${fixture}" (${err.message}). Serve this folder locally with the fixture PDF present.`);
