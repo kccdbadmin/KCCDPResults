@@ -438,16 +438,16 @@ const MASTER_COLS = {
   dob:         ["date of birth", "dob", "birth date", "birthdate"],
   gender:      ["gender", "sex"],
   nationality: ["nationality", "nationalities", "citizenship"],
-  yearLevel:   ["year level", "year group", "year", "grade", "grade level", "nc year", "curriculum year", "form", "form group"],
+  yearLevel:   ["year level", "year group", "year", "year (nc)", "year code", "grade", "grade level", "nc year", "curriculum year", "form", "form group"],
 };
 const EMIRATI_VALUES = new Set(["emirati", "united arab emirates", "uae", "uae national", "emirian"]);
 const MATCH_LABELS = {
   code:     "Candidate code",
-  exact:    "DOB + full name",
+  exact:    "Full name + DOB",
   dobsur:   "DOB + surname (first name differs)",
   dobfore:  "DOB + first name (surname differs)",
   nameyear: "Full name + year level (DOB not confirmed)",
-  name:     "Name only (no DOB to confirm)",
+  name:     "Full name (DOB not confirmed)",
 };
 
 // strip case, accents, spaces, hyphens, apostrophes: "Al Hashmi" === "AlHashmi"
@@ -543,8 +543,12 @@ function parseMasterlist(buf, fileName) {
       nationality: String(get("nationality") ?? "").trim(),
       yearLevel: String(get("yearLevel") ?? "").trim(),
     };
-    const ym = s.yearLevel.match(/\d{1,2}/);   // "Year 13", "Y13", "Grade 12", "13B" -> 13 / 12
-    s.ynum = ym ? Number(ym[0]) : null;
+    // "Year 13"/"Y13"/"Grade 12"/"13B" -> 13/12. DP forms ("DP2 - A", "DP1")
+    // map to 100+n so the DP cohort outranks lower-school numeric years when
+    // picking the graduating cohort ("DP2 - B" must not read as year 2).
+    const dpm = s.yearLevel.match(/dp\s*-?\s*(\d)/i);
+    const ym = s.yearLevel.match(/\d{1,2}/);
+    s.ynum = dpm ? 100 + Number(dpm[1]) : (ym ? Number(ym[0]) : null);
     if (s.forename && s.surname) {
       s.nfirst = normPart(s.forename.split(/\s+/)[0]);
       s.nsur = normPart(s.surname);
@@ -582,11 +586,12 @@ function computeMatches() {
   }
 
   /* Graduating-cohort scope: when the masterlist has a year-level column, the
-     DP results cohort is taken as the highest numeric year present. This lets
-     full-name matching still work when candidate codes / DOBs are unusable
-     (mock PDFs, data-entry errors) without picking up same-name students in
-     lower years. Such matches are flagged for review, never trusted silently;
-     code and DOB+name joins always take precedence when they hit. */
+     DP results cohort is taken as the highest year present (DP2 > DP1 > Y13 >
+     numeric years; blank years - e.g. leavers marked Former - stay eligible).
+     Lookup order per candidate: candidate code, then FULL NAME within the
+     cohort (DOB only confirms or tie-breaks - never a requirement, since mock
+     PDFs carry randomized DOBs), then DOB + partial name as a last resort for
+     spelling differences. Non-exact joins are always flagged for review. */
   let dpYear = null;
   if (state.master.hasYear) {
     const ys = state.master.students.map(s => s.ynum).filter(y => y !== null);
@@ -602,26 +607,32 @@ function computeMatches() {
     for (const code of [normCode(c.personalCode), normCode(c.candidateNo)]) {
       if (code && byCode.has(code)) { hits = byCode.get(code); method = "code"; break; }
     }
-    if (!hits && dob && byDob.has(dob)) {
-      const pool = byDob.get(dob);
-      let h = pool.filter(s => s.nsur === nsur && s.nfirst === nfirst);
-      if (h.length) method = "exact";
-      if (!h.length && nsur) { h = pool.filter(s => s.nsur === nsur); if (h.length) method = "dobsur"; }
-      if (!h.length && nfirst) { h = pool.filter(s => s.nfirst === nfirst); if (h.length) method = "dobfore"; }
-      if (h.length) hits = h;
-    }
+    // primary lookup: full name within the graduating cohort
     if (!hits && nsur && nfirst) {
       let h = byName.get(nsur + "|" + nfirst) || [];
       if (dpYear !== null) h = h.filter(s => s.ynum === dpYear || s.ynum === null);
+      if (h.length > 1 && dob) {
+        const byBirth = h.filter(s => s.dob === dob);   // DOB as tie-breaker only
+        if (byBirth.length === 1) h = byBirth;
+      }
       if (h.length) {
-        if (!dob || h.every(s => !s.dob)) { hits = h; method = "name"; }
-        else if (dpYear !== null) {
-          hits = h; method = "nameyear";
-          note = `DOB differs (PDF ${dob} vs ${h.map(s => s.dob || "?").join(", ")}) - matched by full name within year ${dpYear}; verify`;
-        } else {
-          note = `Same name found in masterlist but DOB differs: PDF ${dob} vs ${h.map(s => s.dob || "?").join(", ")} - check for a data-entry error`;
+        hits = h;
+        if (dob && h[0].dob === dob) method = "exact";
+        else {
+          method = dpYear !== null ? "nameyear" : "name";
+          if (dob && h[0].dob && h[0].dob !== dob)
+            note = `DOB differs (PDF ${dob} vs ${h.map(s => s.dob || "?").join(", ")}) - matched by name` +
+              `${dpYear !== null ? " within the cohort year" : ""}; verify (mock PDFs carry randomized DOBs)`;
         }
       }
+    }
+    // last resort: DOB + partial name, for names spelled differently in the MIS
+    if (!hits && dob && byDob.has(dob)) {
+      const pool = byDob.get(dob);
+      let h = nsur ? pool.filter(s => s.nsur === nsur) : [];
+      if (h.length) method = "dobsur";
+      if (!h.length && nfirst) { h = pool.filter(s => s.nfirst === nfirst); if (h.length) method = "dobfore"; }
+      if (h.length) hits = h;
     }
 
     let s = null;
@@ -1397,7 +1408,7 @@ function renderMasterPanel() {
       `<td>${esc(s ? normGender(s.gender) : "–")}</td><td>${esc(s ? (s.nationality || "–") : "–")}</td>` +
       `<td>${esc((c.match && c.match.note) || "")}</td></tr>`;
   }
-  if (!flagged.length) html += `<tr><td colspan="10">All candidates matched exactly (candidate code or DOB + full name) 🎉</td></tr>`;
+  if (!flagged.length) html += `<tr><td colspan="10">All candidates matched exactly (candidate code or full name + DOB) 🎉</td></tr>`;
   $("matchTable").innerHTML = html + "</tbody>";
 }
 
