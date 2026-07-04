@@ -30,6 +30,21 @@ open `index.html` straight from disk.
      sessions are added as one line in `WORLD_AVERAGES` in `index.html` when the next
      bulletin is published.
    - Total points distribution with mean marker
+   - **Marketing headliners tab** — headline cards (pass rate, % 40+/30+, average points
+     vs world, top performer plus top male/female with a masterlist, average HL/SL grade,
+     full 3/3 core-bonus count with EE/TOK A tallies, boys-vs-girls and Emirati pass
+     rates, actual-vs-predicted), a by-department table (IB groups 1–6; ESS counted
+     under Sciences), and ready-to-paste snippet lines with copy buttons. Printing from
+     this tab produces a poster-style one-pager; snippets also export to a `Headliners`
+     Excel sheet. Names follow the Anonymize toggle.
+   - **Actual vs predicted** — drop the ADEK *IB Data Template* workbook (auto-detected
+     by its `Total IBIS Predicted` / `Subject IB Predicted Grade` columns; either Load
+     button or the dropzone accepts it). Rows join by the IB candidate code the template
+     carries (personal code first; candidate numbers only within the same session, since
+     they repeat every year; unique name as fallback), with a loud warning when the file
+     doesn't cover the cohort. Shows mean actual-minus-predicted, % met-or-beat, and
+     per-subject accuracy (exact / ±1), plus `Predicted vs Actual` and `Predicted
+     Subjects` Excel sheets carrying University/CAT4 projections for reference.
    - Subject performance table (sortable, HL/SL filter, grade mini-bars)
    - Grade distributions (1–7 by level, plus EE and TOK letter grades)
    - "Diploma not awarded" panel with the parsed diploma-requirements reason
