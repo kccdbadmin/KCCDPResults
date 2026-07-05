@@ -29,12 +29,20 @@ open `index.html` straight from disk.
      not possible from a static page (no API/CORS; the site also blocks bots), so new
      sessions are added as one line in `WORLD_AVERAGES` in `index.html` when the next
      bulletin is published.
-   - Total points distribution with mean marker
+   - **Top 5 DP candidates** — ranked by total points, overall and (with a masterlist)
+     split female / male, as full detail cards: every subject with level and grade,
+     EE/TOK core, CAS, result. Ties at 5th place are always included (competition
+     ranking, so the list can exceed 5); candidates without a gender in the masterlist
+     rank in the overall list only, with a visible note. Appears on screen, on the
+     print summary (replacing the old print-only Top performers section), on the
+     marketing tab, and as a `Top 5` Excel sheet. Names follow the Anonymize toggle
+     on screen and print; Excel always carries real names like every other sheet.
    - **Marketing headliners tab** — headline cards (pass rate, % 40+/30+, average points
      vs world, top performer plus top male/female with a masterlist, average HL/SL grade,
      full 3/3 core-bonus count with EE/TOK A tallies, boys-vs-girls and Emirati pass
-     rates, actual-vs-predicted), a by-department table (IB groups 1–6; ESS counted
-     under Sciences), and ready-to-paste snippet lines with copy buttons. Printing from
+     rates, actual-vs-predicted), top-5 lists (overall and per gender), a by-department
+     table (IB groups 1–6; ESS counted under Sciences), and ready-to-paste snippet
+     lines with copy buttons. Printing from
      this tab produces a poster-style one-pager; snippets also export to a `Headliners`
      Excel sheet. Names follow the Anonymize toggle.
    - **Actual vs predicted** — drop the ADEK *IB Data Template* workbook (auto-detected
@@ -45,6 +53,16 @@ open `index.html` straight from disk.
      doesn't cover the cohort. Shows mean actual-minus-predicted, % met-or-beat, and
      per-subject accuracy (exact / ±1), plus `Predicted vs Actual` and `Predicted
      Subjects` Excel sheets carrying University/CAT4 projections for reference.
+   - **Grades vs predicted tab** — a third view (once the predictions template is
+     loaded) that compares every student's subject grades against their IBIS predicted
+     grade *for each subject*. A summary line (overall % exact / % within ±1 / mean Δ,
+     over vs under) sits above a per-subject accuracy breakdown, then a sortable,
+     filterable matrix: one row per subject entry with student, subject, level, IBIS
+     predicted grade, CAT4 "if challenged" (IfC), actual grade, and Δ (actual − predicted,
+     colour-coded). Filter by subject and by HL/SL; click any column to sort. Honours the
+     what-if exclusions and the Include-COURSE cohort toggle, follows the Anonymize
+     toggle, and flags subjects the template didn't predict (pinned at the bottom) rather
+     than dropping them. Prints as a table.
    - Subject performance table (sortable, HL/SL filter, grade mini-bars)
    - Grade distributions (1–7 by level, plus EE and TOK letter grades)
    - "Diploma not awarded" panel with the parsed diploma-requirements reason
@@ -59,11 +77,11 @@ open `index.html` straight from disk.
    in use is shown in the status line and the Excel `Summary` sheet.
 5. **Anonymize names** toggle for projecting in meetings (names become candidate numbers).
 5. **Export Excel** — one workbook with `Candidates`, `Subjects` (pivot-ready long format),
-   `Subject Summary`, `Points Distribution`, and `Summary` sheets.
+   `Subject Summary`, `Points Distribution`, `Summary`, `Highlights`, and `Top 5` sheets.
 6. **Print** — from the Dashboard tab the print stylesheet produces an A4 handout with
    everything except the masterlist-match box: KPIs, highlights, charts (bar values
-   shown on the bars), subject and group tables, diploma-not-awarded, a **Top performers**
-   section (top male and female with full subject detail; all high achievers at 42+ are
+   shown on the bars), subject and group tables, diploma-not-awarded, the **Top 5 DP
+   candidates** section (overall and per gender, full subject detail, ties at 5th
    included), a **Predicted vs actual — by student** section (per subject: actual grade,
    IB predicted grade, the difference, and the CAT4 "if challenged" projection — printed
    only when a predictions file is loaded), and a condensed **All students & subjects**

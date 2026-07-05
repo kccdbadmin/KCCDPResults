@@ -111,8 +111,14 @@
     font-weight: 600; color: var(--muted); border-bottom: 3px solid transparent; margin-bottom: -2px;
   }
   #viewTabs button.active { color: var(--accent-2); border-bottom-color: var(--accent); }
-  body.mkt .dash-only { display: none !important; }
+  /* Tab visibility: dashboard panels carry .dash-only; each alternate view
+     has one panel shown only under its body class. */
+  body.mkt .dash-only, body.subjcmp .dash-only { display: none !important; }
   body:not(.mkt) #mktPanel { display: none !important; }
+  body:not(.subjcmp) #subjCmpPanel { display: none !important; }
+  #subjCmpControls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  #subjCmpSummary .sc-head { font-size: 13px; margin: 4px 0 10px; }
+  #subjCmpEmpty { color: var(--muted); }
 
   /* Marketing headliner cards + snippets */
   #mktCards { display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); gap: 14px; }
@@ -130,15 +136,20 @@
   .snip .txt { flex: 1; }
   .snip button { padding: 3px 10px; font-size: 12px; flex-shrink: 0; }
 
-  /* Print-only: top performers + full student roster */
+  /* Top 5 DP candidates (screen + print) + full student roster (print) */
   .perf-card {
     break-inside: avoid; border: 1px solid var(--line); border-left: 4px solid var(--accent);
-    border-radius: 8px; padding: 8px 12px; margin: 8px 0;
+    border-radius: 8px; padding: 8px 12px; background: var(--card);
   }
   .perf-card h4 { margin: 0 0 2px; font-size: 13.5px; }
+  .perf-card h4 .rank { color: var(--accent-2); font-weight: 700; margin-right: 4px; }
   .perf-card .meta { font-size: 11px; color: var(--muted); margin-bottom: 3px; }
   .perf-card .subj { font-size: 11.5px; line-height: 1.5; }
+  .perf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; margin: 6px 0 4px; }
+  .perf-note { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
   .perf-group-h { margin: 12px 0 2px; font-size: 12px; font-weight: 700; color: var(--accent-2); text-transform: uppercase; letter-spacing: .04em; }
+  #mktTop5 ol { margin: 6px 0 0; padding-left: 22px; }
+  #mktTop5 li { font-size: 13px; margin: 3px 0; }
   #rosterTable, #predPrintTable { font-size: 10px; }
   #rosterTable th, #rosterTable td, #predPrintTable th, #predPrintTable td { padding: 3px 6px; vertical-align: top; }
   #rosterTable .rsubj, #predPrintTable .rsubj { color: var(--ink); line-height: 1.45; }
@@ -212,6 +223,8 @@
     /* long tables may span pages: keep rows whole, repeat the header */
     #rosterTable thead, #predPrintTable thead { display: table-header-group; }
     #rosterTable tr, #predPrintTable tr { break-inside: avoid; }
+    .perf-grid { grid-template-columns: repeat(2, 1fr); }
+    #top5Panel { break-inside: auto; }
     section.panel { border: none; padding: 8px 0; margin: 8px 0; break-inside: avoid; }
     /* the what-if disclosure must survive on paper */
     #adjustPanel { border: 2px solid var(--bad); border-radius: 8px; padding: 10px 12px; }
@@ -256,6 +269,7 @@
     <div id="viewTabs" class="no-print">
       <button id="tabDash" class="active">Dashboard</button>
       <button id="tabMkt">Marketing headliners</button>
+      <button id="tabSubjCmp">Grades vs predicted</button>
     </div>
     <div id="toolbar" class="no-print">
       <button class="primary" id="btnExcel">Export Excel (.xlsx)</button>
@@ -290,9 +304,27 @@
     <section class="panel" id="mktPanel">
       <h2>Marketing headliners <span id="mktSub" style="text-transform:none;font-weight:400;color:var(--muted)"></span></h2>
       <div id="mktCards"></div>
+      <div id="mktTop5" style="margin-top:18px"></div>
       <div id="mktDept" style="margin-top:18px"></div>
       <div id="mktSnippets" class="no-print" style="margin-top:18px"></div>
       <div id="mktFoot" style="font-size:11.5px;color:var(--muted);margin-top:12px;"></div>
+    </section>
+
+    <section class="panel" id="subjCmpPanel">
+      <h2>Grades vs predicted <span id="subjCmpSub" style="text-transform:none;font-weight:400;color:var(--muted)"></span></h2>
+      <div id="subjCmpEmpty"></div>
+      <div id="subjCmpControls" class="no-print">
+        <label style="font-size:12.5px;color:var(--muted);">Subject:
+          <select id="subjCmpSubject" style="margin-left:4px;"></select></label>
+        <label style="font-size:12.5px;color:var(--muted);">Level:
+          <select id="subjCmpLevel" style="margin-left:4px;">
+            <option value="ALL">HL + SL</option><option value="HL">HL only</option><option value="SL">SL only</option>
+          </select></label>
+        <span style="color:var(--muted);font-size:12.5px;">Δ = actual − IBIS predicted grade. IfC = subject CAT4 &ldquo;if challenged&rdquo;. Click a column to sort.</span>
+      </div>
+      <div id="subjCmpCoverage"></div>
+      <div id="subjCmpSummary"></div>
+      <div class="scroll-y"><table id="subjCmpTable"></table></div>
     </section>
 
     <section class="panel dash-only hidden" id="predPanel">
@@ -325,9 +357,9 @@
       <div id="hlWatch"></div>
     </section>
 
-    <section class="panel dash-only print-only" id="topPerfPanel">
-      <h2>Top performers</h2>
-      <div id="topPerfBody"></div>
+    <section class="panel dash-only" id="top5Panel">
+      <h2>Top 5 DP candidates <span id="top5Sub" style="text-transform:none;font-weight:400;color:var(--muted)"></span></h2>
+      <div id="top5Body"></div>
     </section>
 
     <section class="panel dash-only" id="pointsPanel">
@@ -466,6 +498,10 @@ const state = {
   pages: 0, candidates: [], subjects: [], warnings: [],
   anonymize: false, levelFilter: "ALL",
   subjSort: { key: "entries", dir: -1 },
+  predSort: { key: "diff", dir: -1 },   // Actual vs predicted table (default: biggest over-performance first)
+  subjCmpSort: { key: "student", dir: 1 },  // Grades-vs-predicted tab: sort column + direction
+  subjCmpSubject: "ALL",                    // Grades-vs-predicted tab: subject filter
+  subjCmpLevel: "ALL",                      // Grades-vs-predicted tab: HL/SL filter
   charts: {},
   master: null,          // parsed masterlist: { fileName, students, used }
   groupBy: "gender",
@@ -474,7 +510,7 @@ const state = {
   worldAvgSession: null, // session key into WORLD_AVERAGES when mode === "official"
   excluded: new Set(),   // candidateNos excluded from stats (what-if view, always disclosed)
   pred: null,            // parsed predictions (ADEK IB Data Template): { fileName, students, ... }
-  view: "dash",          // "dash" | "mkt" (marketing headliners)
+  view: "dash",          // "dash" | "mkt" (marketing) | "subjcmp" (grades vs predicted)
   includeCourse: false,  // false = diploma-track cohort; true = all students (incl. COURSE)
 };
 
@@ -1239,7 +1275,7 @@ function renderAll() {
   renderKpis(); renderHighlights(); renderPointsChart(); renderSubjectTable();
   renderGradeCharts(); renderFailTable(); renderCandTable();
   renderMasterPanel(); renderGroupPanel(); renderPredPanel(); renderMarketing();
-  renderTopPerformers(); renderStudentRoster(); renderPredPrint();
+  renderSubjCmp(); renderTop5(); renderStudentRoster(); renderPredPrint();
 }
 
 /* ================= What-if disclosure banner =================
@@ -1727,41 +1763,54 @@ function coreLine(c) {
   return bits.join(" · ");
 }
 
-function renderTopPerformers() {
-  const el = $("topPerfBody");
-  if (!state.candidates.length) { el.innerHTML = ""; return; }
+/* Top 5 by total points. Ties at 5th place are always included (the list may
+   exceed 5) — no student is dropped by an arbitrary tiebreak. Ranks use
+   competition ranking: equal points share a rank (1, 2, 2, 4, …). */
+function rankTop5(list) {
+  const sorted = [...list].sort((a, b) => b.totalPoints - a.totalPoints || String(a.name).localeCompare(String(b.name)));
+  if (!sorted.length) return [];
+  const kept = sorted.length <= 5 ? sorted : sorted.filter(c => c.totalPoints >= sorted[4].totalPoints);
+  return kept.map(c => ({ c, rank: 1 + sorted.filter(x => x.totalPoints > c.totalPoints).length }));
+}
+function top5Groups() {
+  // RETAKE candidates stay eligible (same rule as the old top-performers section)
   const dip = activeCandidates().filter(c => c.category !== "COURSE" && c.totalPoints !== null);
-  if (!dip.length) { el.innerHTML = "<p>No diploma-track candidates with a total score.</p>"; return; }
-
-  const bySort = (a, b) => b.totalPoints - a.totalPoints || String(a.name).localeCompare(String(b.name));
-  // the top scorer(s), plus every high achiever at 42+ ("add multiple if they scored 42")
-  const winnersOf = list => {
-    const max = Math.max(...list.map(c => c.totalPoints));
-    return list.filter(c => c.totalPoints === max || c.totalPoints >= 42).sort(bySort);
-  };
-  const hasGender = state.master && dip.some(c => c.gender === "Male" || c.gender === "Female");
-  const groups = [];
+  if (!dip.length) return { groups: [], noGender: 0, hasGender: false };
+  const hasGender = !!state.master && dip.some(c => c.gender === "Male" || c.gender === "Female");
+  const groups = [{ key: "overall", label: "Top 5 — all DP candidates", rows: rankTop5(dip) }];
+  let noGender = 0;
   if (hasGender) {
     for (const g of ["Female", "Male"]) {
       const list = dip.filter(c => c.gender === g);
-      if (list.length) groups.push({ label: `Top ${g.toLowerCase()} performer${winnersOf(list).length > 1 ? "s" : ""}`, winners: winnersOf(list) });
+      if (list.length) groups.push({ key: g, label: `Top 5 — ${g.toLowerCase()}`, rows: rankTop5(list) });
     }
-    const noG = dip.filter(c => c.gender !== "Male" && c.gender !== "Female");
-    if (noG.length) groups.push({ label: "Top performer (gender not in masterlist)", winners: winnersOf(noG) });
-  } else {
-    groups.push({ label: "Top performers (load a masterlist for a male / female split)", winners: winnersOf(dip) });
+    noGender = dip.filter(c => c.gender !== "Male" && c.gender !== "Female").length;
   }
+  return { groups, noGender, hasGender };
+}
 
+function renderTop5() {
+  const el = $("top5Body");
+  if (!state.candidates.length) { el.innerHTML = ""; $("top5Sub").textContent = ""; return; }
+  const { groups, noGender, hasGender } = top5Groups();
+  $("top5Sub").textContent = " — by total points (COURSE students carry no diploma total)";
+  if (!groups.length) { el.innerHTML = "<p>No diploma-track candidates with a total score.</p>"; return; }
+
+  const card = ({ c, rank }) => {
+    const subj = candMainSubjects(c).map(s => `${esc(s.subjectDisplay)} ${s.level} <b>${esc(s.grade)}</b>`).join(" · ");
+    const core = coreLine(c);
+    return `<div class="perf-card"><h4><span class="rank">${rank}.</span>${esc(candLabel(c))} &mdash; ${c.totalPoints} points${c.result ? ` · ${esc(c.result)}` : ""}</h4>` +
+      `<div class="meta">Candidate ${esc(c.candidateNo)} · ${esc(c.category)}${core ? " · " + core : ""}${c.casSatisfied ? " · CAS ✓" : ""}</div>` +
+      `<div class="subj">${subj || "—"}</div></div>`;
+  };
   el.innerHTML = groups.map(gr =>
-    `<div class="perf-group-h">${esc(gr.label)}</div>` +
-    gr.winners.map(c => {
-      const subj = candMainSubjects(c).map(s => `${esc(s.subjectDisplay)} ${s.level} <b>${esc(s.grade)}</b>`).join(" · ");
-      const core = coreLine(c);
-      return `<div class="perf-card"><h4>${esc(candLabel(c))} &mdash; ${c.totalPoints} points${c.result ? ` · ${esc(c.result)}` : ""}</h4>` +
-        `<div class="meta">Candidate ${esc(c.candidateNo)} · ${esc(c.category)}${core ? " · " + core : ""}${c.casSatisfied ? " · CAS ✓" : ""}</div>` +
-        `<div class="subj">${subj || "—"}</div></div>`;
-    }).join("")
-  ).join("");
+    `<div class="perf-group-h">${esc(gr.label)}${gr.rows.length > 5 ? ` · ${gr.rows.length} listed (tie at 5th place)` : ""}</div>` +
+    `<div class="perf-grid">${gr.rows.map(card).join("")}</div>`
+  ).join("") +
+  (hasGender && noGender
+    ? `<p class="perf-note">${noGender} candidate(s) without a gender in the masterlist are ranked in the overall list only.</p>` : "") +
+  (!hasGender
+    ? `<p class="perf-note">Load a masterlist to add the top 5 by gender.</p>` : "");
 }
 
 function renderStudentRoster() {
@@ -1848,34 +1897,217 @@ function renderPredPanel() {
   if (P.pairs)
     html += ` Subject grades: <b>${pct(P.exact / P.pairs)}</b> exactly as predicted and <b>${pct(P.within1 / P.pairs)}</b> within &plusmn;1
        (${P.above} above / ${P.below} below, of ${P.pairs} graded entries).`;
-  $("predSummary").innerHTML = `<p>${html}</p>`;
+  $("predSummary").innerHTML = `<p>${html}</p>` +
+    `<p style="color:var(--muted);font-size:12.5px;margin:4px 0 0;">Click a column header to sort. Unmatched candidates stay at the bottom.</p>`;
 
-  const rows = activeCandidates().filter(c => c.pred && c.pred.rec.ibis !== null && c.totalPoints !== null)
-    .sort((a, b) => (b.totalPoints - b.pred.rec.ibis) - (a.totalPoints - a.pred.rec.ibis));
+  // Pre-compute a record per matched candidate so any column can be sorted.
+  // Subj exact / ±1 sort by their ratio (se/sn); no graded pairs sorts to the bottom.
+  const recs = activeCandidates().filter(c => c.pred && c.pred.rec.ibis !== null && c.totalPoints !== null)
+    .map(c => {
+      let se = 0, sw = 0, sn = 0;
+      for (const s of state.subjects) {
+        if (s.candidateNo !== c.candidateNo || s.additional || s.session !== state.session || s.gradeNumeric === null) continue;
+        const p = c.pred.rec.subj.get(normSubjName(s.subjectRaw) + "|" + s.level);
+        if (p === undefined || p === null) continue;
+        sn++; if (s.gradeNumeric === p) se++; if (Math.abs(s.gradeNumeric - p) <= 1) sw++;
+      }
+      return {
+        c, no: c.candidateNo, name: candLabel(c), category: c.category,
+        ibis: c.pred.rec.ibis, actual: c.totalPoints, diff: c.totalPoints - c.pred.rec.ibis,
+        exact: sn ? se / sn : null, within1: sn ? sw / sn : null, se, sw, sn,
+        via: c.pred.via === "code" ? "IB code" : "name",
+      };
+    });
+  const { key, dir } = state.predSort;
+  recs.sort((a, b) => {
+    const av = a[key], bv = b[key];
+    if (typeof av === "string") return dir * av.localeCompare(bv) || String(a.no).localeCompare(String(b.no));
+    return dir * ((av ?? -Infinity) - (bv ?? -Infinity)) || String(a.no).localeCompare(String(b.no));
+  });
   const missing = activeCandidates().filter(c => !c.pred);
-  let t = `<thead><tr><th>#</th><th>Name</th><th>Category</th><th class="num">IBIS predicted</th>` +
-    `<th class="num">Actual</th><th class="num">Diff</th><th class="num">Subj exact</th><th class="num">Subj ±1</th><th>Matched via</th></tr></thead><tbody>`;
-  for (const c of rows) {
-    const d = c.totalPoints - c.pred.rec.ibis;
-    let se = 0, sw = 0, sn = 0;
-    for (const s of state.subjects) {
-      if (s.candidateNo !== c.candidateNo || s.additional || s.session !== state.session || s.gradeNumeric === null) continue;
-      const p = c.pred.rec.subj.get(normSubjName(s.subjectRaw) + "|" + s.level);
-      if (p === undefined || p === null) continue;
-      sn++; if (s.gradeNumeric === p) se++; if (Math.abs(s.gradeNumeric - p) <= 1) sw++;
-    }
-    const pill = d > 0 ? "ok" : (d < 0 ? "bad" : "mid");
-    t += `<tr><td>${esc(c.candidateNo)}</td><td>${esc(candLabel(c))}</td><td>${esc(c.category)}</td>` +
-      `<td class="num">${c.pred.rec.ibis}</td><td class="num">${c.totalPoints}</td>` +
-      `<td class="num"><span class="pill ${pill}">${d >= 0 ? "+" + d : d}</span></td>` +
-      `<td class="num">${sn ? `${se}/${sn}` : "–"}</td><td class="num">${sn ? `${sw}/${sn}` : "–"}</td>` +
-      `<td>${c.pred.via === "code" ? "IB code" : "name"}</td></tr>`;
+
+  const head = [
+    ["no", "#", false], ["name", "Name", false], ["category", "Category", false],
+    ["ibis", "IBIS predicted", true], ["actual", "Actual", true], ["diff", "Diff", true],
+    ["exact", "Subj exact", true], ["within1", "Subj ±1", true], ["via", "Matched via", false],
+  ];
+  const arrow = k => key === k ? (dir > 0 ? " ▲" : " ▼") : "";
+  let t = "<thead><tr>" + head.map(([k, l, num]) =>
+    `<th class="sortable${num ? " num" : ""}" data-key="${k}">${esc(l)}${arrow(k)}</th>`).join("") +
+    "</tr></thead><tbody>";
+  for (const r of recs) {
+    const pill = r.diff > 0 ? "ok" : (r.diff < 0 ? "bad" : "mid");
+    t += `<tr><td>${esc(r.no)}</td><td>${esc(r.name)}</td><td>${esc(r.category)}</td>` +
+      `<td class="num">${r.ibis}</td><td class="num">${r.actual}</td>` +
+      `<td class="num"><span class="pill ${pill}">${r.diff >= 0 ? "+" + r.diff : r.diff}</span></td>` +
+      `<td class="num">${r.sn ? `${r.se}/${r.sn}` : "–"}</td><td class="num">${r.sn ? `${r.sw}/${r.sn}` : "–"}</td>` +
+      `<td>${esc(r.via)}</td></tr>`;
   }
+  // unmatched candidates have no comparable data — always pinned at the bottom
   for (const c of missing) {
     t += `<tr class="excl"><td>${esc(c.candidateNo)}</td><td>${esc(candLabel(c))}</td><td>${esc(c.category)}</td>` +
       `<td class="num">–</td><td class="num">${c.totalPoints ?? "–"}</td><td class="num">–</td><td class="num">–</td><td class="num">–</td><td>not found</td></tr>`;
   }
   $("predTable").innerHTML = t + "</tbody>";
+  $("predTable").querySelectorAll("th.sortable").forEach(th => th.onclick = () => {
+    const k = th.dataset.key;
+    if (state.predSort.key === k) state.predSort.dir *= -1;
+    else state.predSort = { key: k, dir: (k === "name" || k === "category" || k === "via" || k === "no") ? 1 : -1 };
+    renderPredPanel();
+  });
+}
+
+/* ================= Grades vs predicted (per-subject comparison tab) =================
+   One row per (candidate × current-session HL/SL subject) for candidates matched
+   to the predictions template. Joins the actual grade to the IBIS predicted grade
+   and the CAT4 "if challenged" projection, the same way predStats() does — so it
+   honours the what-if exclusions and the Include-COURSE cohort toggle. Δ = actual
+   − predicted. Subjects the template didn't predict are flagged, never dropped. */
+function subjCmpRows() {
+  const rows = [];
+  if (!state.pred) return rows;
+  const candByNo = new Map(activeCandidates().map(c => [c.candidateNo, c]));
+  for (const s of currentSubjects()) {
+    const c = candByNo.get(s.candidateNo);
+    if (!c || !c.pred) continue;               // student not in the predictions template
+    const key = normSubjName(s.subjectRaw) + "|" + s.level;
+    const p = c.pred.rec.subj.get(key);
+    const ifc = c.pred.rec.subjIfc.get(key);
+    const pred = (p === undefined || p === null) ? null : p;
+    rows.push({
+      candNo: c.candidateNo, student: candLabel(c), category: c.category,
+      subject: s.subjectDisplay, level: s.level,
+      actual: s.gradeNumeric, actualGrade: s.grade,
+      pred, ifc: (ifc === undefined || ifc === null) ? null : ifc,
+      diff: pred === null ? null : s.gradeNumeric - pred,
+    });
+  }
+  return rows;
+}
+
+function renderSubjCmp() {
+  const panel = $("subjCmpPanel");
+  if (!state.candidates.length) {
+    $("subjCmpEmpty").innerHTML = ""; $("subjCmpCoverage").innerHTML = "";
+    $("subjCmpSummary").innerHTML = ""; $("subjCmpTable").innerHTML = "";
+    $("subjCmpControls").classList.add("hidden"); $("subjCmpSub").textContent = "";
+    return;
+  }
+  if (!state.pred) {
+    $("subjCmpControls").classList.add("hidden");
+    $("subjCmpSub").textContent = "";
+    $("subjCmpEmpty").innerHTML =
+      `<p>Load the ADEK <b>IB Data Template</b> (predictions workbook) to compare every student&rsquo;s ` +
+      `subject grades against their IBIS predicted grades. Use <b>Load predictions&hellip;</b> in the toolbar, ` +
+      `or drop the file onto the page. Nothing is uploaded &mdash; it is parsed in this browser tab.</p>`;
+    $("subjCmpCoverage").innerHTML = ""; $("subjCmpSummary").innerHTML = ""; $("subjCmpTable").innerHTML = "";
+    return;
+  }
+  $("subjCmpEmpty").innerHTML = "";
+  $("subjCmpControls").classList.remove("hidden");
+
+  const all = subjCmpRows();
+
+  // subject filter options (union of all subjects present), keep current choice if still valid
+  const subjects = [...new Set(all.map(r => r.subject))].sort((a, b) => a.localeCompare(b));
+  if (state.subjCmpSubject !== "ALL" && !subjects.includes(state.subjCmpSubject)) state.subjCmpSubject = "ALL";
+  $("subjCmpSubject").innerHTML =
+    `<option value="ALL">All subjects</option>` +
+    subjects.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
+  $("subjCmpSubject").value = state.subjCmpSubject;
+  $("subjCmpLevel").value = state.subjCmpLevel;
+
+  const fSub = state.subjCmpSubject, fLev = state.subjCmpLevel;
+  const rows = all.filter(r => (fSub === "ALL" || r.subject === fSub) && (fLev === "ALL" || r.level === fLev));
+  const filtered = fSub !== "ALL" || fLev !== "ALL";
+
+  // coverage: how many students the template actually covers
+  const cohortCands = activeCandidates().filter(inCohort);
+  const matchedCands = cohortCands.filter(c => c.pred).length;
+  $("subjCmpSub").textContent = ` — ${state.pred.fileName} · ${matchedCands}/${cohortCands.length} ${cohortLabel()} students matched`;
+  const ratio = cohortCands.length ? matchedCands / cohortCands.length : 0;
+  $("subjCmpCoverage").innerHTML = ratio < 0.5
+    ? `<div style="background:#f7e3e1;border:1px solid #e0b4af;border-radius:8px;padding:10px 12px;color:var(--bad);font-weight:600;margin-bottom:8px;">
+        Only ${matchedCands} of ${cohortCands.length} students were found in the predictions file &mdash; it probably does not cover this cohort.</div>`
+    : (ratio < 0.9
+      ? `<div style="background:var(--warn-bg);border:1px solid #e8d9a0;border-radius:8px;padding:10px 12px;color:#8a6d1a;margin-bottom:8px;">
+          ${cohortCands.length - matchedCands} student(s) not found in the predictions file &mdash; their subjects are not shown here.</div>`
+      : "");
+
+  // ---- summary over matched rows in the current filter ----
+  const m = rows.filter(r => r.diff !== null);
+  const pairs = m.length;
+  const exact = m.filter(r => r.diff === 0).length;
+  const w1 = m.filter(r => Math.abs(r.diff) <= 1).length;
+  const over = m.filter(r => r.diff > 0).length, under = m.filter(r => r.diff < 0).length;
+  const meanD = pairs ? m.reduce((a, r) => a + r.diff, 0) / pairs : null;
+  const dsign = x => (x >= 0 ? "+" : "") + x.toFixed(2);
+  let summary = pairs
+    ? `<div class="sc-head"><b>${pairs}</b> graded subject entries${filtered ? " (current filter)" : ""}: ` +
+      `<b>${pct(exact / pairs)}</b> exactly as predicted, <b>${pct(w1 / pairs)}</b> within &plusmn;1, ` +
+      `mean difference <b>${dsign(meanD)}</b> (${over} above prediction / ${under} below).</div>`
+    : `<div class="sc-head">No graded subject entries with a matching prediction in the current filter.</div>`;
+
+  // ---- per-subject accuracy breakdown (skip when a single subject is filtered) ----
+  if (fSub === "ALL" && pairs) {
+    const bySubj = new Map();
+    for (const r of m) {
+      const k = r.subject + "|" + r.level;
+      if (!bySubj.has(k)) bySubj.set(k, { subject: r.subject, level: r.level, n: 0, exact: 0, w1: 0, sum: 0, over: 0, under: 0 });
+      const g = bySubj.get(k);
+      g.n++; if (r.diff === 0) g.exact++; if (Math.abs(r.diff) <= 1) g.w1++; g.sum += r.diff;
+      if (r.diff > 0) g.over++; if (r.diff < 0) g.under++;
+    }
+    const srows = [...bySubj.values()].sort((a, b) => a.subject.localeCompare(b.subject) || a.level.localeCompare(b.level));
+    summary += `<table style="margin-top:6px;"><thead><tr><th>Subject</th><th>Level</th><th class="num">Entries</th>` +
+      `<th class="num">% exact</th><th class="num">% ±1</th><th class="num">Mean Δ</th><th class="num">Above / below</th></tr></thead><tbody>` +
+      srows.map(g => `<tr><td>${esc(g.subject)}</td><td>${g.level}</td><td class="num">${g.n}</td>` +
+        `<td class="num">${pct(g.exact / g.n)}</td><td class="num">${pct(g.w1 / g.n)}</td>` +
+        `<td class="num">${dsign(g.sum / g.n)}</td><td class="num">${g.over} / ${g.under}</td></tr>`).join("") +
+      `</tbody></table>`;
+  }
+  $("subjCmpSummary").innerHTML = summary;
+
+  // ---- detail matrix (sortable); rows with no prediction are pinned at the bottom ----
+  const { key, dir } = state.subjCmpSort;
+  const cmp = (a, b) => {
+    const av = a[key], bv = b[key];
+    let c;
+    if (typeof av === "string" || typeof bv === "string") c = dir * String(av).localeCompare(String(bv));
+    else c = dir * ((av ?? -Infinity) - (bv ?? -Infinity));
+    return c || String(a.student).localeCompare(String(b.student)) || a.subject.localeCompare(b.subject) || a.level.localeCompare(b.level);
+  };
+  const matched = rows.filter(r => r.pred !== null).sort(cmp);
+  const unmatched = rows.filter(r => r.pred === null)
+    .sort((a, b) => String(a.student).localeCompare(String(b.student)) || a.subject.localeCompare(b.subject));
+
+  const head = [
+    ["student", "Student", false], ["subject", "Subject", false], ["level", "Lvl", false],
+    ["pred", "IBIS pred", true], ["ifc", "IfC", true], ["actual", "Actual", true], ["diff", "Δ", true],
+  ];
+  const arrow = k => key === k ? (dir > 0 ? " ▲" : " ▼") : "";
+  let t = "<thead><tr>" + head.map(([k, l, num]) =>
+    `<th class="sortable${num ? " num" : ""}" data-key="${k}">${esc(l)}${arrow(k)}</th>`).join("") + "</tr></thead><tbody>";
+  const dcell = d => { const pill = d > 0 ? "ok" : (d < 0 ? "bad" : "mid"); return `<span class="pill ${pill}">${d > 0 ? "+" + d : d}</span>`; };
+  for (const r of matched) {
+    t += `<tr><td>${esc(r.student)}</td><td>${esc(r.subject)}</td><td>${r.level}</td>` +
+      `<td class="num">${r.pred}</td><td class="num">${r.ifc ?? "–"}</td>` +
+      `<td class="num">${esc(r.actualGrade)}</td>` +
+      `<td class="num">${r.diff === null ? "–" : dcell(r.diff)}</td></tr>`;
+  }
+  for (const r of unmatched) {
+    t += `<tr class="excl"><td>${esc(r.student)}</td><td>${esc(r.subject)}</td><td>${r.level}</td>` +
+      `<td class="num">–</td><td class="num">${r.ifc ?? "–"}</td><td class="num">${esc(r.actualGrade)}</td>` +
+      `<td class="num" title="no predicted grade for this subject in the template">no pred</td></tr>`;
+  }
+  if (!matched.length && !unmatched.length) t += `<tr><td colspan="7">No subjects to compare in the current filter.</td></tr>`;
+  $("subjCmpTable").innerHTML = t + "</tbody>";
+  $("subjCmpTable").querySelectorAll("th.sortable").forEach(th => th.onclick = () => {
+    const k = th.dataset.key;
+    if (state.subjCmpSort.key === k) state.subjCmpSort.dir *= -1;
+    else state.subjCmpSort = { key: k, dir: (k === "student" || k === "subject" || k === "level") ? 1 : -1 };
+    renderSubjCmp();
+  });
 }
 
 /* ================= Marketing headliners ================= */
@@ -1916,6 +2148,9 @@ function buildSnippets(nameOf) {
     const tm = topOf(dip.filter(c => c.gender === "Male")), tf = topOf(dip.filter(c => c.gender === "Female"));
     if (tm && tf) out.push(`👩‍🎓👨‍🎓 Top performers: ${tf.names.join(", ")} (${tf.pts} points) and ${tm.names.join(", ")} (${tm.pts} points).`);
   }
+  const t5 = top5Groups().groups[0];
+  if (t5 && t5.rows.length >= 5)
+    out.push(`🏅 Our top five: ${t5.rows.map(r => `${nameOf(r.c)} (${r.c.totalPoints})`).join("; ")} points.`);
   if (state.worldAvg !== null && k.avgPts !== null) {
     const d = k.avgPts - state.worldAvg;
     out.push(d >= 0
@@ -2002,6 +2237,17 @@ function renderMarketing() {
 
   $("mktCards").innerHTML = cards.map(x =>
     `<div class="mcard"><div class="l">${esc(x.l)}</div><div class="v">${esc(String(x.v))}</div><div class="d">${esc(x.d)}</div></div>`).join("");
+
+  const t5 = top5Groups();
+  $("mktTop5").innerHTML = t5.groups.length
+    ? `<h3 style="margin:0 0 6px;font-size:13px;color:var(--muted)">Top 5 DP candidates (by total points)</h3>` +
+      `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:14px;">` +
+      t5.groups.map(gr =>
+        `<div class="mcard"><div class="l">${esc(gr.label)}</div><ol>` +
+        gr.rows.map(r => `<li>${esc(candLabel(r.c))} &mdash; <b>${r.c.totalPoints}</b></li>`).join("") +
+        `</ol>${gr.rows.length > 5 ? `<div class="d">tie at 5th place — all included</div>` : ""}</div>`).join("") +
+      `</div>`
+    : "";
 
   const dep = deptSummary();
   $("mktDept").innerHTML = dep.length
@@ -2159,6 +2405,17 @@ function exportExcel() {
     ["Remark watchlist", "Missed by <=2 points or failed a condition at 24+"],
     ...H.nearMiss.map(c => [`${c.candidateNo} - ${c.name}`, `${c.totalPoints} pts - ${c.failReason || ""}`]),
   ], false);
+
+  // like every other sheet, real names — the Anonymize toggle is screen/print only
+  const t5 = top5Groups();
+  if (t5.groups.length) {
+    sheet("Top 5",
+      ["Group", "Rank", "Candidate No", "Name", "Total Points", "Result", "EE Grade", "TOK Grade", "Core Points", "CAS", "Subjects"],
+      t5.groups.flatMap(gr => gr.rows.map(({ c, rank }) => [
+        gr.label, rank, c.candidateNo, c.name, c.totalPoints, c.result, c.eeGrade, c.tokGrade,
+        c.eeTokPoints, c.casSatisfied ? "Yes" : "No",
+        candMainSubjects(c).map(s => `${s.subjectDisplay} ${s.level} ${s.grade}`).join("; ")])));
+  }
 
   if (state.pred) {
     sheet("Predicted vs Actual",
@@ -2331,11 +2588,16 @@ $("predInput").addEventListener("change", e => { handleSheetFile(e.target.files[
 function setView(v) {
   state.view = v;
   document.body.classList.toggle("mkt", v === "mkt");
+  document.body.classList.toggle("subjcmp", v === "subjcmp");
   $("tabDash").classList.toggle("active", v === "dash");
   $("tabMkt").classList.toggle("active", v === "mkt");
+  $("tabSubjCmp").classList.toggle("active", v === "subjcmp");
 }
 $("tabDash").addEventListener("click", () => setView("dash"));
 $("tabMkt").addEventListener("click", () => setView("mkt"));
+$("tabSubjCmp").addEventListener("click", () => setView("subjcmp"));
+$("subjCmpSubject").addEventListener("change", e => { state.subjCmpSubject = e.target.value; renderSubjCmp(); });
+$("subjCmpLevel").addEventListener("change", e => { state.subjCmpLevel = e.target.value; renderSubjCmp(); });
 $("btnReset").addEventListener("click", () => {
   $("dashboard").classList.add("hidden");
   $("dropzone").classList.remove("hidden");
@@ -2344,7 +2606,7 @@ $("btnReset").addEventListener("click", () => {
     .filter(Boolean).join(" and ");
   showProgress(kept ? `Loaded ${kept} will be matched to the next PDF.` : "");
 });
-$("anonToggle").addEventListener("change", e => { state.anonymize = e.target.checked; renderAdjusted(); renderHighlights(); renderFailTable(); renderCandTable(); renderMasterPanel(); renderPredPanel(); renderMarketing(); renderTopPerformers(); renderStudentRoster(); renderPredPrint(); });
+$("anonToggle").addEventListener("change", e => { state.anonymize = e.target.checked; renderAdjusted(); renderHighlights(); renderFailTable(); renderCandTable(); renderMasterPanel(); renderPredPanel(); renderMarketing(); renderSubjCmp(); renderTop5(); renderStudentRoster(); renderPredPrint(); });
 // Cohort toggle changes every statistic at once, so re-render everything.
 $("courseToggle").addEventListener("change", e => { state.includeCourse = e.target.checked; renderAll(); });
 $("btnExclRetakes").addEventListener("click", () => {
