@@ -130,6 +130,20 @@
   .snip .txt { flex: 1; }
   .snip button { padding: 3px 10px; font-size: 12px; flex-shrink: 0; }
 
+  /* Print-only: top performers + full student roster */
+  .perf-card {
+    break-inside: avoid; border: 1px solid var(--line); border-left: 4px solid var(--accent);
+    border-radius: 8px; padding: 8px 12px; margin: 8px 0;
+  }
+  .perf-card h4 { margin: 0 0 2px; font-size: 13.5px; }
+  .perf-card .meta { font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+  .perf-card .subj { font-size: 11.5px; line-height: 1.5; }
+  .perf-group-h { margin: 12px 0 2px; font-size: 12px; font-weight: 700; color: var(--accent-2); text-transform: uppercase; letter-spacing: .04em; }
+  #rosterTable { font-size: 10px; }
+  #rosterTable th, #rosterTable td { padding: 3px 6px; vertical-align: top; }
+  #rosterTable .rsubj { color: var(--ink); line-height: 1.45; }
+  #rosterTable tr.excl td { opacity: .55; }
+
   /* KPI cards */
   #kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
   #hlCards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
@@ -192,9 +206,12 @@
     header.app .titles { border-left: none; padding-left: 0; }
     header.app .campus { color: var(--accent-2); }
     main { max-width: none; padding: 0; }
-    .no-print, #dropzone, #toolbar, #candPanel, #warnPanel, #testPanel { display: none !important; }
+    .no-print, #dropzone, #toolbar, #viewTabs, #candPanel, #warnPanel, #testPanel, #masterPanel { display: none !important; }
     .print-only { display: block; }
     span.print-only { display: inline; }
+    /* long roster may span pages: keep rows whole, repeat the header */
+    #rosterTable thead { display: table-header-group; }
+    #rosterTable tr { break-inside: avoid; }
     section.panel { border: none; padding: 8px 0; margin: 8px 0; break-inside: avoid; }
     /* the what-if disclosure must survive on paper */
     #adjustPanel { border: 2px solid var(--bad); border-radius: 8px; padding: 10px 12px; }
@@ -208,8 +225,7 @@
     body.mkt .mcard { break-inside: avoid; border: 1px solid var(--line); border-left: 5px solid var(--accent); }
     body.mkt .mcard .v { font-size: 30px; }
     a { text-decoration: none; color: inherit; }
-    /* never print student names */
-    .name-col { display: none !important; }
+    /* names print unless the Anonymize toggle is on (handled in JS) */
   }
 </style>
 </head>
@@ -308,6 +324,11 @@
       <div id="hlWatch"></div>
     </section>
 
+    <section class="panel dash-only print-only" id="topPerfPanel">
+      <h2>Top performers</h2>
+      <div id="topPerfBody"></div>
+    </section>
+
     <section class="panel dash-only" id="pointsPanel">
       <h2>Total points distribution <span id="ptsSub" style="text-transform:none;font-weight:400;color:var(--muted)"></span></h2>
       <div class="chart-wrap"><canvas id="pointsChart"></canvas></div>
@@ -343,9 +364,9 @@
       </div>
     </section>
 
-    <section class="panel dash-only no-print hidden" id="groupPanel">
+    <section class="panel dash-only hidden" id="groupPanel">
       <h2>Group comparisons</h2>
-      <div style="margin-bottom:10px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+      <div class="no-print" style="margin-bottom:10px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
         <select id="groupBy">
           <option value="gender">Male vs Female</option>
           <option value="emirati">Emirati vs Non-Emirati</option>
@@ -363,6 +384,11 @@
     <section class="panel dash-only" id="failPanel">
       <h2>Diploma not awarded</h2>
       <div class="scroll-y"><table id="failTable"></table></div>
+    </section>
+
+    <section class="panel dash-only print-only" id="rosterPanel">
+      <h2>All students &amp; subjects</h2>
+      <div id="rosterBody"></div>
     </section>
 
     <section class="panel dash-only no-print" id="candPanel">
@@ -1184,6 +1210,7 @@ function renderAll() {
   renderKpis(); renderHighlights(); renderPointsChart(); renderSubjectTable();
   renderGradeCharts(); renderFailTable(); renderCandTable();
   renderMasterPanel(); renderGroupPanel(); renderPredPanel(); renderMarketing();
+  renderTopPerformers(); renderStudentRoster();
 }
 
 /* ================= What-if disclosure banner =================
@@ -1366,6 +1393,31 @@ const meanLinePlugin = {
   }
 };
 Chart.register(meanLinePlugin);
+
+/* Draw each bar's value on the bar (skip zeros). Sits inside the bar in
+   white when there isn't room above it, so the tallest bars aren't clipped. */
+const barValuePlugin = {
+  id: "barValues",
+  afterDatasetsDraw(chart, _args, opts) {
+    if (opts && opts.enabled === false) return;
+    const ctx = chart.ctx, area = chart.chartArea;
+    ctx.save();
+    ctx.font = '600 10px Poppins, "Segoe UI", sans-serif';
+    ctx.textAlign = "center";
+    chart.data.datasets.forEach((ds, di) => {
+      const meta = chart.getDatasetMeta(di);
+      if (meta.hidden || !meta.data) return;
+      meta.data.forEach((bar, i) => {
+        const v = ds.data[i];
+        if (!v) return;
+        if (bar.y - 12 < area.top) { ctx.fillStyle = "#fff"; ctx.textBaseline = "top"; ctx.fillText(v, bar.x, bar.y + 3); }
+        else { ctx.fillStyle = "#344042"; ctx.textBaseline = "bottom"; ctx.fillText(v, bar.x, bar.y - 3); }
+      });
+    });
+    ctx.restore();
+  }
+};
+Chart.register(barValuePlugin);
 Chart.defaults.font.family = '"Poppins", "Segoe UI", system-ui, sans-serif';
 Chart.defaults.color = "#344042";
 
@@ -1629,6 +1681,80 @@ function renderMasterPanel() {
   }
   if (!flagged.length) html += `<tr><td colspan="10">All candidates matched exactly (candidate code or full name + DOB) 🎉</td></tr>`;
   $("matchTable").innerHTML = html + "</tbody>";
+}
+
+/* ================= Print: top performers & full roster ================= */
+function candMainSubjects(c) {
+  return state.subjects
+    .filter(s => s.candidateNo === c.candidateNo && s.session === state.session && !s.additional && (s.level === "HL" || s.level === "SL"))
+    .sort((a, b) => (a.level === b.level ? a.subjectDisplay.localeCompare(b.subjectDisplay) : (a.level === "HL" ? -1 : 1)));
+}
+function coreLine(c) {
+  const bits = [];
+  if (c.eeGrade) bits.push(`EE ${esc(c.eeGrade)}${c.eeSubject ? ` (${esc(c.eeSubject)})` : ""}`);
+  if (c.tokGrade) bits.push(`TOK ${esc(c.tokGrade)}`);
+  if (c.eeTokPoints !== null) bits.push(`core ${c.eeTokPoints}/3`);
+  return bits.join(" · ");
+}
+
+function renderTopPerformers() {
+  const el = $("topPerfBody");
+  if (!state.candidates.length) { el.innerHTML = ""; return; }
+  const dip = activeCandidates().filter(c => c.category !== "COURSE" && c.totalPoints !== null);
+  if (!dip.length) { el.innerHTML = "<p>No diploma-track candidates with a total score.</p>"; return; }
+
+  const bySort = (a, b) => b.totalPoints - a.totalPoints || String(a.name).localeCompare(String(b.name));
+  // the top scorer(s), plus every high achiever at 42+ ("add multiple if they scored 42")
+  const winnersOf = list => {
+    const max = Math.max(...list.map(c => c.totalPoints));
+    return list.filter(c => c.totalPoints === max || c.totalPoints >= 42).sort(bySort);
+  };
+  const hasGender = state.master && dip.some(c => c.gender === "Male" || c.gender === "Female");
+  const groups = [];
+  if (hasGender) {
+    for (const g of ["Female", "Male"]) {
+      const list = dip.filter(c => c.gender === g);
+      if (list.length) groups.push({ label: `Top ${g.toLowerCase()} performer${winnersOf(list).length > 1 ? "s" : ""}`, winners: winnersOf(list) });
+    }
+    const noG = dip.filter(c => c.gender !== "Male" && c.gender !== "Female");
+    if (noG.length) groups.push({ label: "Top performer (gender not in masterlist)", winners: winnersOf(noG) });
+  } else {
+    groups.push({ label: "Top performers (load a masterlist for a male / female split)", winners: winnersOf(dip) });
+  }
+
+  el.innerHTML = groups.map(gr =>
+    `<div class="perf-group-h">${esc(gr.label)}</div>` +
+    gr.winners.map(c => {
+      const subj = candMainSubjects(c).map(s => `${esc(s.subjectDisplay)} ${s.level} <b>${esc(s.grade)}</b>`).join(" · ");
+      const core = coreLine(c);
+      return `<div class="perf-card"><h4>${esc(candLabel(c))} &mdash; ${c.totalPoints} points${c.result ? ` · ${esc(c.result)}` : ""}</h4>` +
+        `<div class="meta">Candidate ${esc(c.candidateNo)} · ${esc(c.category)}${core ? " · " + core : ""}${c.casSatisfied ? " · CAS ✓" : ""}</div>` +
+        `<div class="subj">${subj || "—"}</div></div>`;
+    }).join("")
+  ).join("");
+}
+
+function renderStudentRoster() {
+  const el = $("rosterBody");
+  if (!state.candidates.length) { el.innerHTML = ""; return; }
+  const rows = [...state.candidates].sort((a, b) =>
+    String(a.surname || a.name || "").localeCompare(String(b.surname || b.name || "")) ||
+    String(a.candidateNo).localeCompare(String(b.candidateNo)));
+  let html = `<table id="rosterTable"><thead><tr><th>#</th><th>Name</th><th class="num">Pts</th><th>Result</th>` +
+    `<th>Subjects (HL bold) &middot; core</th></tr></thead><tbody>`;
+  for (const c of rows) {
+    const excl = state.excluded.has(c.candidateNo);
+    const subj = candMainSubjects(c).map(s =>
+      s.level === "HL" ? `<b>${esc(s.subjectDisplay)} ${esc(s.grade)}</b>` : `${esc(s.subjectDisplay)} ${esc(s.grade)}`).join(", ");
+    const core = [];
+    if (c.eeGrade) core.push(`EE ${esc(c.eeGrade)}`);
+    if (c.tokGrade) core.push(`TOK ${esc(c.tokGrade)}`);
+    if (c.eeTokPoints !== null) core.push(`core ${c.eeTokPoints}`);
+    html += `<tr${excl ? ' class="excl"' : ""}><td>${esc(c.candidateNo)}</td><td>${esc(candLabel(c))}${excl ? " (excluded)" : ""}</td>` +
+      `<td class="num">${c.totalPoints ?? "–"}</td><td>${esc(c.result || "course only")}</td>` +
+      `<td class="rsubj">${subj || "—"}${core.length ? ` &middot; ${core.join(" / ")}` : ""}</td></tr>`;
+  }
+  el.innerHTML = html + "</tbody></table>";
 }
 
 /* ================= Actual vs predicted panel ================= */
@@ -2148,7 +2274,7 @@ $("btnReset").addEventListener("click", () => {
     .filter(Boolean).join(" and ");
   showProgress(kept ? `Loaded ${kept} will be matched to the next PDF.` : "");
 });
-$("anonToggle").addEventListener("change", e => { state.anonymize = e.target.checked; renderAdjusted(); renderHighlights(); renderFailTable(); renderCandTable(); renderMasterPanel(); renderPredPanel(); renderMarketing(); });
+$("anonToggle").addEventListener("change", e => { state.anonymize = e.target.checked; renderAdjusted(); renderHighlights(); renderFailTable(); renderCandTable(); renderMasterPanel(); renderPredPanel(); renderMarketing(); renderTopPerformers(); renderStudentRoster(); });
 $("btnExclRetakes").addEventListener("click", () => {
   for (const c of state.candidates) if (c.category === "RETAKE" && c.candidateNo) state.excluded.add(c.candidateNo);
   renderAll();

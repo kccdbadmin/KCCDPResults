@@ -52,8 +52,12 @@ open `index.html` straight from disk.
 4. **Anonymize names** toggle for projecting in meetings (names become candidate numbers).
 5. **Export Excel** — one workbook with `Candidates`, `Subjects` (pivot-ready long format),
    `Subject Summary`, `Points Distribution`, and `Summary` sheets.
-6. **Print leadership summary** — a print stylesheet turns the dashboard into a ~2-page
-   A4 handout (student names are never printed).
+6. **Print** — from the Dashboard tab the print stylesheet produces an A4 handout with
+   everything except the masterlist-match box: KPIs, highlights, charts (bar values
+   shown on the bars), subject and group tables, diploma-not-awarded, a **Top performers**
+   section (top male and female with full subject detail; all high achievers at 42+ are
+   included), and a condensed **All students & subjects** roster. Names print unless the
+   **Anonymize names** toggle is on. The Marketing tab prints as a poster instead.
 
 ## Student masterlist (gender / nationality breakdowns)
 
