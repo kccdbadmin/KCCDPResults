@@ -139,9 +139,9 @@
   .perf-card .meta { font-size: 11px; color: var(--muted); margin-bottom: 3px; }
   .perf-card .subj { font-size: 11.5px; line-height: 1.5; }
   .perf-group-h { margin: 12px 0 2px; font-size: 12px; font-weight: 700; color: var(--accent-2); text-transform: uppercase; letter-spacing: .04em; }
-  #rosterTable { font-size: 10px; }
-  #rosterTable th, #rosterTable td { padding: 3px 6px; vertical-align: top; }
-  #rosterTable .rsubj { color: var(--ink); line-height: 1.45; }
+  #rosterTable, #predPrintTable { font-size: 10px; }
+  #rosterTable th, #rosterTable td, #predPrintTable th, #predPrintTable td { padding: 3px 6px; vertical-align: top; }
+  #rosterTable .rsubj, #predPrintTable .rsubj { color: var(--ink); line-height: 1.45; }
   #rosterTable tr.excl td { opacity: .55; }
 
   /* KPI cards */
@@ -209,9 +209,9 @@
     .no-print, #dropzone, #toolbar, #viewTabs, #candPanel, #warnPanel, #testPanel, #masterPanel { display: none !important; }
     .print-only { display: block; }
     span.print-only { display: inline; }
-    /* long roster may span pages: keep rows whole, repeat the header */
-    #rosterTable thead { display: table-header-group; }
-    #rosterTable tr { break-inside: avoid; }
+    /* long tables may span pages: keep rows whole, repeat the header */
+    #rosterTable thead, #predPrintTable thead { display: table-header-group; }
+    #rosterTable tr, #predPrintTable tr { break-inside: avoid; }
     section.panel { border: none; padding: 8px 0; margin: 8px 0; break-inside: avoid; }
     /* the what-if disclosure must survive on paper */
     #adjustPanel { border: 2px solid var(--bad); border-radius: 8px; padding: 10px 12px; }
@@ -384,6 +384,11 @@
     <section class="panel dash-only" id="failPanel">
       <h2>Diploma not awarded</h2>
       <div class="scroll-y"><table id="failTable"></table></div>
+    </section>
+
+    <section class="panel dash-only print-only hidden" id="predPrintPanel">
+      <h2>Predicted vs actual &mdash; by student</h2>
+      <div id="predPrintBody"></div>
     </section>
 
     <section class="panel dash-only print-only" id="rosterPanel">
@@ -768,7 +773,8 @@ function parsePredictions(wb, fileName) {
       session: m ? m[1] : null, candNo: m ? normCode(m[3]) : null, personal: m ? m[4].toLowerCase() : null,
       name: String(nameCell ?? "").trim() || `${firstCell ?? ""} ${lastCell ?? ""}`.trim(),
       nsur: normPart(lastCell), nfirst: normPart(String(firstCell ?? "").split(/\s+/)[0] || ""),
-      category: null, ibis: null, univ: null, cat4: null, cat4ifc: null, subj: new Map(),
+      category: null, ibis: null, univ: null, cat4: null, cat4ifc: null,
+      subj: new Map(), subjIfc: new Map(),
     });
     return students.get(key);
   };
@@ -794,18 +800,23 @@ function parsePredictions(wb, fileName) {
   if (found.subject) {
     const { aoa, col } = found.subject;
     const ci = { code: col("candidate code"), name: col("student name"), first: col("first name"),
-      last: col("last name"), subj: col("subject name as per ib"), grade: col("subject ib predicted grade") };
+      last: col("last name"), subj: col("subject name as per ib"), grade: col("subject ib predicted grade"),
+      ifc: col("subject cat4 if challenged") };
     for (let r = 1; r < aoa.length; r++) {
       const row = aoa[r];
       if (!row || row.every(v => v === null || v === "")) continue;
       if (ci.subj < 0 || !row[ci.subj]) continue;
       const sm = RE_SUBJ_LEVEL.exec(normSubjName(row[ci.subj]));
+      if (!sm) continue;
       const g = num(ci.grade >= 0 ? row[ci.grade] : null);
-      if (!sm || g === null) continue;
+      const ifc = num(ci.ifc >= 0 ? row[ci.ifc] : null);
+      if (g === null && ifc === null) continue;
       const s = recFor(ci.code >= 0 ? row[ci.code] : null, ci.name >= 0 ? row[ci.name] : null,
         ci.first >= 0 ? row[ci.first] : null, ci.last >= 0 ? row[ci.last] : null);
       if (!s) continue;
-      s.subj.set(normSubjName(sm[1]) + "|" + sm[2].toUpperCase(), g);
+      const key = normSubjName(sm[1]) + "|" + sm[2].toUpperCase();
+      if (g !== null) s.subj.set(key, g);
+      if (ifc !== null) s.subjIfc.set(key, ifc);
     }
   }
   const list = [...students.values()];
@@ -1210,7 +1221,7 @@ function renderAll() {
   renderKpis(); renderHighlights(); renderPointsChart(); renderSubjectTable();
   renderGradeCharts(); renderFailTable(); renderCandTable();
   renderMasterPanel(); renderGroupPanel(); renderPredPanel(); renderMarketing();
-  renderTopPerformers(); renderStudentRoster();
+  renderTopPerformers(); renderStudentRoster(); renderPredPrint();
 }
 
 /* ================= What-if disclosure banner =================
@@ -1757,6 +1768,41 @@ function renderStudentRoster() {
   el.innerHTML = html + "</tbody></table>";
 }
 
+/* Print-only: per-student predicted-vs-actual with the "if challenged" projection.
+   Δ = actual − IB predicted grade; IfC = subject CAT4 "if challenged" value. */
+function renderPredPrint() {
+  const panel = $("predPrintPanel"), el = $("predPrintBody");
+  if (!state.pred || !state.candidates.length) { panel.classList.add("hidden"); el.innerHTML = ""; return; }
+  const rows = activeCandidates().filter(c => c.pred && c.category !== "COURSE")
+    .sort((a, b) => String(a.surname || a.name || "").localeCompare(String(b.surname || b.name || "")));
+  if (!rows.length) { panel.classList.add("hidden"); el.innerHTML = ""; return; }
+  panel.classList.remove("hidden");
+
+  const dsign = d => d === null ? "" : (d > 0 ? `+${d}` : `${d}`);
+  let html = `<p style="font-size:11px;color:var(--muted);margin:0 0 8px;">` +
+    `&Delta; = actual &minus; IB predicted grade. IfC = subject CAT4 &ldquo;if challenged&rdquo; projection. ` +
+    `${rows.length} student(s) matched to the predictions file.</p>` +
+    `<table id="predPrintTable"><thead><tr><th>#</th><th>Name</th>` +
+    `<th class="num">Total act / pred (&Delta;)</th><th>Subject &mdash; actual vs predicted (&Delta;) &middot; if challenged</th></tr></thead><tbody>`;
+  for (const c of rows) {
+    const rec = c.pred.rec;
+    const tdiff = (c.totalPoints !== null && rec.ibis !== null) ? c.totalPoints - rec.ibis : null;
+    const totCell = `${c.totalPoints ?? "–"} / ${rec.ibis ?? "–"}${tdiff !== null ? ` (${dsign(tdiff)})` : ""}` +
+      (rec.cat4ifc !== null ? ` · IfC ${rec.cat4ifc}` : "");
+    const subjBits = candMainSubjects(c).map(s => {
+      const key = normSubjName(s.subjectRaw) + "|" + s.level;
+      const p = rec.subj.get(key), ifc = rec.subjIfc.get(key);
+      const d = (p !== undefined && p !== null) ? s.gradeNumeric - p : null;
+      const predPart = (p !== undefined && p !== null) ? `pred ${p}, ${dsign(d)}` : "no pred";
+      const ifcPart = (ifc !== undefined && ifc !== null) ? `; IfC ${ifc}` : "";
+      return `${esc(s.subjectDisplay)} ${s.level} <b>${esc(s.grade)}</b> (${predPart}${ifcPart})`;
+    }).join(" · ");
+    html += `<tr><td>${esc(c.candidateNo)}</td><td>${esc(candLabel(c))}</td>` +
+      `<td class="num">${totCell}</td><td class="rsubj">${subjBits || "—"}</td></tr>`;
+  }
+  el.innerHTML = html + "</tbody></table>";
+}
+
 /* ================= Actual vs predicted panel ================= */
 function renderPredPanel() {
   const panel = $("predPanel");
@@ -2111,12 +2157,16 @@ function exportExcel() {
         if (s.additional || s.session !== state.session || s.gradeNumeric === null) continue;
         const c = state.candidates.find(x => x.candidateNo === s.candidateNo);
         const r = c && c.pred && c.pred.rec;
-        const p = r ? r.subj.get(normSubjName(s.subjectRaw) + "|" + s.level) : undefined;
-        if (p === undefined || p === null) continue;
-        srows.push([s.candidateNo, s.name, s.subjectDisplay, s.level, s.gradeNumeric, p, s.gradeNumeric - p]);
+        const key = normSubjName(s.subjectRaw) + "|" + s.level;
+        const p = r ? r.subj.get(key) : undefined;
+        const ifc = r ? r.subjIfc.get(key) : undefined;
+        if ((p === undefined || p === null) && (ifc === undefined || ifc === null)) continue;
+        srows.push([s.candidateNo, s.name, s.subjectDisplay, s.level, s.gradeNumeric,
+          p ?? "", (p === undefined || p === null) ? "" : s.gradeNumeric - p,
+          ifc ?? "", (ifc === undefined || ifc === null) ? "" : s.gradeNumeric - ifc]);
       }
       sheet("Predicted Subjects",
-        ["Candidate No", "Name", "Subject", "Level", "Actual", "Predicted", "Diff"], srows);
+        ["Candidate No", "Name", "Subject", "Level", "Actual", "Predicted", "Diff", "If Challenged", "Diff vs IfC"], srows);
     }
   }
 
@@ -2274,7 +2324,7 @@ $("btnReset").addEventListener("click", () => {
     .filter(Boolean).join(" and ");
   showProgress(kept ? `Loaded ${kept} will be matched to the next PDF.` : "");
 });
-$("anonToggle").addEventListener("change", e => { state.anonymize = e.target.checked; renderAdjusted(); renderHighlights(); renderFailTable(); renderCandTable(); renderMasterPanel(); renderPredPanel(); renderMarketing(); renderTopPerformers(); renderStudentRoster(); });
+$("anonToggle").addEventListener("change", e => { state.anonymize = e.target.checked; renderAdjusted(); renderHighlights(); renderFailTable(); renderCandTable(); renderMasterPanel(); renderPredPanel(); renderMarketing(); renderTopPerformers(); renderStudentRoster(); renderPredPrint(); });
 $("btnExclRetakes").addEventListener("click", () => {
   for (const c of state.candidates) if (c.category === "RETAKE" && c.candidateNo) state.excluded.add(c.candidateNo);
   renderAll();

@@ -56,8 +56,11 @@ open `index.html` straight from disk.
    everything except the masterlist-match box: KPIs, highlights, charts (bar values
    shown on the bars), subject and group tables, diploma-not-awarded, a **Top performers**
    section (top male and female with full subject detail; all high achievers at 42+ are
-   included), and a condensed **All students & subjects** roster. Names print unless the
-   **Anonymize names** toggle is on. The Marketing tab prints as a poster instead.
+   included), a **Predicted vs actual — by student** section (per subject: actual grade,
+   IB predicted grade, the difference, and the CAT4 "if challenged" projection — printed
+   only when a predictions file is loaded), and a condensed **All students & subjects**
+   roster. Names print unless the **Anonymize names** toggle is on. The Marketing tab
+   prints as a poster instead.
 
 ## Student masterlist (gender / nationality breakdowns)
 
