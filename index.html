@@ -264,6 +264,7 @@
       <input type="file" id="masterInput" accept=".xlsx,.xls,.csv" class="hidden">
       <button id="btnPred">Load predictions&hellip;</button>
       <input type="file" id="predInput" accept=".xlsx,.xls,.csv" class="hidden">
+      <label class="toggle" title="Include COURSE-category students (they have subject grades but no diploma total). Off = diploma-track only."><input type="checkbox" id="courseToggle"> Include COURSE students</label>
       <label class="toggle"><input type="checkbox" id="anonToggle"> Anonymize names</label>
       <button id="btnReset">Load another file</button>
       <span id="statusLine" aria-live="polite"></span>
@@ -474,6 +475,7 @@ const state = {
   excluded: new Set(),   // candidateNos excluded from stats (what-if view, always disclosed)
   pred: null,            // parsed predictions (ADEK IB Data Template): { fileName, students, ... }
   view: "dash",          // "dash" | "mkt" (marketing headliners)
+  includeCourse: false,  // false = diploma-track cohort; true = all students (incl. COURSE)
 };
 
 /* ================= IB world averages (official) =================
@@ -1118,9 +1120,22 @@ function resetState() {
 function activeCandidates() {
   return state.candidates.filter(c => !state.excluded.has(c.candidateNo));
 }
+/* The reporting cohort. COURSE students carry subject grades but no diploma
+   total/result; the "Include COURSE students" toggle decides whether they
+   count. RETAKE and DIPLOMA are always in. When the toggle is off the cohort
+   is diploma-track; when on it is every (non-excluded) student. cohortNos()
+   gates the subject-level stats so subjects follow the same rule as counts. */
+function inCohort(c) { return state.includeCourse || c.category !== "COURSE"; }
+function cohortNos() {
+  const set = new Set();
+  for (const c of activeCandidates()) if (inCohort(c)) set.add(c.candidateNo);
+  return set;
+}
+function cohortLabel() { return state.includeCourse ? "all students" : "diploma-track"; }
 function currentSubjects({ lettersToo = false } = {}) {
+  const nos = cohortNos();
   return state.subjects.filter(s =>
-    !state.excluded.has(s.candidateNo) &&
+    nos.has(s.candidateNo) &&
     !s.additional &&
     (lettersToo ? true : s.gradeNumeric !== null) &&
     (s.level === "HL" || s.level === "SL") &&
@@ -1128,7 +1143,7 @@ function currentSubjects({ lettersToo = false } = {}) {
   );
 }
 function diplomaTrack() {
-  return activeCandidates().filter(c => c.category !== "COURSE");
+  return activeCandidates().filter(inCohort);
 }
 function computeKpis() {
   const dip = diplomaTrack();
@@ -1159,8 +1174,9 @@ function pointsHistogram() {
 }
 function subjectSummary() {
   const rows = new Map();
+  const nos = cohortNos();
   for (const s of state.subjects) {
-    if (state.excluded.has(s.candidateNo)) continue;
+    if (!nos.has(s.candidateNo)) continue;
     if (s.additional || s.session !== state.session) continue;
     if (s.level !== "HL" && s.level !== "SL") continue;
     const key = s.subjectDisplay + "||" + s.level;
@@ -1181,8 +1197,9 @@ function subjectSummary() {
 }
 function letterDist(level) {
   const d = { A: 0, B: 0, C: 0, D: 0, E: 0, N: 0 };
+  const nos = cohortNos();
   for (const s of state.subjects) {
-    if (state.excluded.has(s.candidateNo)) continue;
+    if (!nos.has(s.candidateNo)) continue;
     if (s.additional || s.level !== level || s.session !== state.session) continue;
     if (d[s.grade] === undefined) continue;
     d[s.grade]++;
@@ -1209,6 +1226,7 @@ function renderAll() {
   $("printDate").textContent = ` · printed ${new Date().toLocaleDateString()}`;
   $("statusLine").textContent =
     `${state.pages} pages parsed · ${state.candidates.length} candidates · ${state.subjects.length} subject rows · ${state.warnings.length} warnings` +
+    ` · cohort: ${cohortLabel()}` +
     (state.excluded.size ? ` · ${state.excluded.size} excluded (what-if)` : "");
 
   // warnings
@@ -1256,11 +1274,11 @@ function renderAdjusted() {
 function renderKpis() {
   const k = computeKpis();
   $("kpis").innerHTML = [
-    { v: pct(k.passRate), l: "Diploma pass rate", d: `${k.passN} of ${k.passDen} diploma-track candidates` },
-    { v: fmt(k.avgPts, 1), l: "Average total points", d: "diploma-track candidates" },
+    { v: pct(k.passRate), l: "Diploma pass rate", d: `${k.passN} of ${k.passDen} diploma candidates` },
+    { v: fmt(k.avgPts, 1), l: "Average total points", d: "diploma candidates with a total" },
     { v: k.maxPts ?? "–", l: "Highest score", d: `${k.over40} candidate(s) at 40+` },
     { v: k.bilingual, l: "Bilingual diplomas", d: "" },
-    { v: fmt(k.avgGrade, 2), l: "Average subject grade", d: "current session, HL+SL" },
+    { v: fmt(k.avgGrade, 2), l: "Average subject grade", d: `${cohortLabel()}, current session HL+SL` },
     { v: k.notAwarded, l: "Not awarded", d: "see panel below" },
   ].map(x => `<div class="kpi"><div class="v">${x.v}</div><div class="l">${x.l}</div><div class="d">${x.d}</div></div>`).join("");
 }
@@ -1272,8 +1290,9 @@ function renderKpis() {
 function computeHighlights() {
   const dip = diplomaTrack();
   const withPts = dip.filter(c => c.totalPoints !== null);
-  const den = withPts.length;
-  const maxPts = den ? Math.max(...withPts.map(c => c.totalPoints)) : null;
+  const nPts = withPts.length;
+  const den = dip.length;   // share denominator: whole cohort (grows when COURSE is included)
+  const maxPts = nPts ? Math.max(...withPts.map(c => c.totalPoints)) : null;
   const top = maxPts === null ? [] : withPts.filter(c => c.totalPoints === maxPts);
   const over40 = withPts.filter(c => c.totalPoints >= 40);
   const over30 = withPts.filter(c => c.totalPoints >= 30);
@@ -1318,13 +1337,13 @@ function computeHighlights() {
       }
     }
   }
-  const avgPts = den ? withPts.reduce((a, c) => a + c.totalPoints, 0) / den : null;
-  return { den, maxPts, avgPts, top, over40, over30, sevens, entries: cur.length, sweeps, nearMiss, stars, concerns, gaps };
+  const avgPts = nPts ? withPts.reduce((a, c) => a + c.totalPoints, 0) / nPts : null;
+  return { den, nPts, maxPts, avgPts, top, over40, over30, sevens, entries: cur.length, sweeps, nearMiss, stars, concerns, gaps };
 }
 
 function renderHighlights() {
   const H = computeHighlights();
-  const share = n => H.den ? `${(100 * n / H.den).toFixed(0)}% of ${H.den} diploma-track` : "";
+  const share = n => H.den ? `${(100 * n / H.den).toFixed(0)}% of ${H.den} ${cohortLabel()}` : "";
   const topNames = H.top.map(candLabel);
   const topLabel = topNames.length > 3 ? topNames.slice(0, 3).join(", ") + ` +${topNames.length - 3} more` : topNames.join(", ");
   $("hlCards").innerHTML = [
@@ -1434,7 +1453,7 @@ Chart.defaults.color = "#344042";
 
 function renderPointsChart() {
   const h = pointsHistogram();
-  $("ptsSub").textContent = h.mean !== null ? `(diploma-track, mean ${h.mean.toFixed(1)})` : "";
+  $("ptsSub").textContent = h.mean !== null ? `(${cohortLabel()}, mean ${h.mean.toFixed(1)})` : "";
   makeChart("pointsChart", {
     type: "bar",
     data: { labels: h.labels, datasets: [{ data: h.counts, backgroundColor: "#1ea270", label: "Candidates" }] },
@@ -1583,7 +1602,7 @@ function groupMetrics(names, keyOf) {
   return names.map(g => {
     const cands = activeCandidates().filter(c => keyOf(c) === g);
     const nos = new Set(cands.map(c => c.candidateNo));
-    const dip = cands.filter(c => c.category !== "COURSE");
+    const dip = cands.filter(inCohort);
     const withResult = dip.filter(c => KNOWN_RESULTS.includes(c.result));
     const awarded = withResult.filter(c => c.result === "Diploma awarded" || c.result === "Bilingual Diploma awarded");
     const withPts = dip.filter(c => c.totalPoints !== null);
@@ -1640,7 +1659,7 @@ function renderGroupPanel() {
     },
     options: {
       plugins: { legend: { position: "top" } },
-      scales: { y: { beginAtZero: true, ticks: { precision: 0 } }, x: { title: { display: true, text: "Total points (diploma-track)" } } },
+      scales: { y: { beginAtZero: true, ticks: { precision: 0 } }, x: { title: { display: true, text: `Total points (${cohortLabel()})` } } },
     },
   });
 }
@@ -1883,7 +1902,7 @@ function buildSnippets(nameOf) {
   if (k.passRate !== null)
     out.push(`🎓 ${pct(k.passRate)} of our IB Diploma candidates were awarded the Diploma in ${sess} (${k.passN} of ${k.passDen}).`);
   if (H.den) {
-    out.push(`⭐ ${pct(H.over40.length / H.den)} of our diploma-track students scored 40+ points, and ${pct(H.over30.length / H.den)} scored 30 or more.`);
+    out.push(`⭐ ${pct(H.over40.length / H.den)} of our ${state.includeCourse ? "students" : "diploma-track students"} scored 40+ points, and ${pct(H.over30.length / H.den)} scored 30 or more.`);
   }
   const topOf = list => {
     const w = list.filter(c => c.totalPoints !== null);
@@ -1951,8 +1970,8 @@ function renderMarketing() {
   const add = (l, v, d) => cards.push({ l, v, d });
   if (k.passRate !== null) add("Diploma pass rate", pct(k.passRate), `${k.passN} of ${k.passDen} candidates`);
   if (H.den) {
-    add("Scored 40+ points", pct(H.over40.length / H.den), `${H.over40.length} of ${H.den} diploma-track`);
-    add("Scored 30+ points", pct(H.over30.length / H.den), `${H.over30.length} of ${H.den} diploma-track`);
+    add("Scored 40+ points", pct(H.over40.length / H.den), `${H.over40.length} of ${H.den} ${cohortLabel()}`);
+    add("Scored 30+ points", pct(H.over30.length / H.den), `${H.over30.length} of ${H.den} ${cohortLabel()}`);
   }
   if (k.avgPts !== null) {
     const d = state.worldAvg !== null ? k.avgPts - state.worldAvg : null;
@@ -2096,6 +2115,7 @@ function exportExcel() {
       ["", ""]] : []),
     ["School", "Raha International School - Khalifa City Campus"],
     ["Session", state.session], ["School code", state.schoolCode], ["Date printed (on PDF)", state.datePrinted],
+    ["Cohort", state.includeCourse ? "All students (incl. COURSE)" : "Diploma-track only"],
     ["Candidates", state.candidates.length],
     ...Object.entries(state.candidates.reduce((a, c) => (a[c.category] = (a[c.category] || 0) + 1, a), {}))
       .map(([cat, n]) => [`Candidates: ${cat}`, n]),
@@ -2325,6 +2345,8 @@ $("btnReset").addEventListener("click", () => {
   showProgress(kept ? `Loaded ${kept} will be matched to the next PDF.` : "");
 });
 $("anonToggle").addEventListener("change", e => { state.anonymize = e.target.checked; renderAdjusted(); renderHighlights(); renderFailTable(); renderCandTable(); renderMasterPanel(); renderPredPanel(); renderMarketing(); renderTopPerformers(); renderStudentRoster(); renderPredPrint(); });
+// Cohort toggle changes every statistic at once, so re-render everything.
+$("courseToggle").addEventListener("change", e => { state.includeCourse = e.target.checked; renderAll(); });
 $("btnExclRetakes").addEventListener("click", () => {
   for (const c of state.candidates) if (c.category === "RETAKE" && c.candidateNo) state.excluded.add(c.candidateNo);
   renderAll();

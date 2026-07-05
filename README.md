@@ -49,7 +49,15 @@ open `index.html` straight from disk.
    - Grade distributions (1–7 by level, plus EE and TOK letter grades)
    - "Diploma not awarded" panel with the parsed diploma-requirements reason
    - Full searchable candidate table
-4. **Anonymize names** toggle for projecting in meetings (names become candidate numbers).
+4. **Include COURSE students** toggle switches the reporting cohort between diploma-track
+   only (default) and all students. COURSE-category students carry subject grades but no
+   diploma total or result, so turning it on adds their grades to every subject-level
+   figure (average subject grade, subject/group tables, grade distributions, department
+   breakdown, grade-7 tally) and widens the 40+/30+ percentage base to the whole cohort;
+   pass rate and average total points are unaffected (COURSE students have neither). Every
+   affected callout relabels between "diploma-track" and "all students", and the cohort
+   in use is shown in the status line and the Excel `Summary` sheet.
+5. **Anonymize names** toggle for projecting in meetings (names become candidate numbers).
 5. **Export Excel** — one workbook with `Candidates`, `Subjects` (pivot-ready long format),
    `Subject Summary`, `Points Distribution`, and `Summary` sheets.
 6. **Print** — from the Dashboard tab the print stylesheet produces an A4 handout with
