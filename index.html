@@ -113,9 +113,19 @@
   #viewTabs button.active { color: var(--accent-2); border-bottom-color: var(--accent); }
   /* Tab visibility: dashboard panels carry .dash-only; each alternate view
      has one panel shown only under its body class. */
-  body.mkt .dash-only, body.subjcmp .dash-only { display: none !important; }
+  body.mkt .dash-only, body.subjcmp .dash-only, body.candview .dash-only { display: none !important; }
   body:not(.mkt) #mktPanel { display: none !important; }
   body:not(.subjcmp) #subjCmpPanel { display: none !important; }
+  body:not(.candview) #candProfilePanel { display: none !important; }
+  /* Candidate profile layout */
+  .cp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 4px 0 16px; }
+  .cp-stat { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--panel, #fff); }
+  .cp-stat .k { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .cp-stat .v { font-size: 20px; font-weight: 700; color: var(--slate, #344042); margin-top: 2px; }
+  .cp-stat .v small { font-size: 12px; font-weight: 500; color: var(--muted); }
+  .cp-sec { margin: 18px 0 6px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .cp-meta { font-size: 13px; color: var(--slate, #344042); margin-bottom: 6px; }
+  .cp-meta b { color: var(--muted); font-weight: 600; }
   #subjCmpControls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
   #subjCmpSummary .sc-head { font-size: 13px; margin: 4px 0 10px; }
   #subjCmpEmpty { color: var(--muted); }
@@ -270,6 +280,7 @@
       <button id="tabDash" class="active">Dashboard</button>
       <button id="tabMkt">Marketing headliners</button>
       <button id="tabSubjCmp">Grades vs predicted</button>
+      <button id="tabCand">Candidate</button>
     </div>
     <div id="toolbar" class="no-print">
       <button class="primary" id="btnExcel">Export Excel (.xlsx)</button>
@@ -278,6 +289,8 @@
       <input type="file" id="masterInput" accept=".xlsx,.xls,.csv" class="hidden">
       <button id="btnPred">Load predictions&hellip;</button>
       <input type="file" id="predInput" accept=".xlsx,.xls,.csv" class="hidden">
+      <button id="btnIbis" title="Load the IBIS &ldquo;Subject Results&rdquo; PDF (official predicted vs actual grades). When loaded it becomes the source for every IBIS predicted subject grade.">Load IBIS predicted&hellip;</button>
+      <input type="file" id="ibisInput" accept="application/pdf,.pdf" class="hidden">
       <label class="toggle" title="Include COURSE-category students (they have subject grades but no diploma total). Off = diploma-track only."><input type="checkbox" id="courseToggle"> Include COURSE students</label>
       <label class="toggle"><input type="checkbox" id="anonToggle"> Anonymize names</label>
       <button id="btnReset">Load another file</button>
@@ -325,6 +338,18 @@
       <div id="subjCmpCoverage"></div>
       <div id="subjCmpSummary"></div>
       <div class="scroll-y"><table id="subjCmpTable"></table></div>
+    </section>
+
+    <section class="panel no-print" id="candProfilePanel">
+      <h2>Candidate profile <span id="candProfileSub" style="text-transform:none;font-weight:400;color:var(--muted)"></span></h2>
+      <div id="candProfileControls" style="margin-bottom:12px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+        <input type="search" id="candProfileSearch" placeholder="Search name / candidate number&hellip;"
+               style="font:inherit; padding:6px 10px; border:1px solid var(--line); border-radius:8px; min-width:220px;">
+        <label style="font-size:12.5px;color:var(--muted);">Candidate:
+          <select id="candProfileSelect" style="margin-left:4px; font:inherit; padding:5px 8px; border:1px solid var(--line); border-radius:8px; max-width:340px;"></select></label>
+        <span style="color:var(--muted); font-size:12.5px;">Everything on record for one candidate &mdash; grades, predictions, core &amp; profile.</span>
+      </div>
+      <div id="candProfileBody"></div>
     </section>
 
     <section class="panel dash-only hidden" id="predPanel">
@@ -510,7 +535,9 @@ const state = {
   worldAvgSession: null, // session key into WORLD_AVERAGES when mode === "official"
   excluded: new Set(),   // candidateNos excluded from stats (what-if view, always disclosed)
   pred: null,            // parsed predictions (ADEK IB Data Template): { fileName, students, ... }
-  view: "dash",          // "dash" | "mkt" (marketing) | "subjcmp" (grades vs predicted)
+  ibisPred: null,        // parsed IBIS "Subject Results" PDF: { fileName, entries } - official IBIS per-subject predicted grades
+  candView: null,        // candidateNo selected in the Candidate profile tab
+  view: "dash",          // "dash" | "mkt" | "subjcmp" | "cand" (candidate profile)
   includeCourse: false,  // false = diploma-track cohort; true = all students (incl. COURSE)
 };
 
@@ -899,12 +926,12 @@ function predStats() {
   const totals = matched.filter(c => c.category !== "COURSE" && c.totalPoints !== null && c.pred.rec.ibis !== null);
   const sum = a => a.reduce((x, y) => x + y, 0);
   const diffs = totals.map(c => c.totalPoints - c.pred.rec.ibis);
-  const predByNo = new Map(matched.map(c => [c.candidateNo, c.pred.rec]));
+  const candByNo = new Map(matched.map(c => [c.candidateNo, c]));
   let pairs = 0, exact = 0, within1 = 0, above = 0, below = 0;
   for (const s of currentSubjects()) {
-    const rec = predByNo.get(s.candidateNo);
-    const p = rec ? rec.subj.get(normSubjName(s.subjectRaw) + "|" + s.level) : undefined;
-    if (p === undefined || p === null) continue;
+    const c = candByNo.get(s.candidateNo);
+    const p = c ? predSubjGrade(c, s.subjectRaw, s.level) : null;
+    if (p === null) continue;
     const d = s.gradeNumeric - p;
     pairs++; if (d === 0) exact++; if (Math.abs(d) <= 1) within1++; if (d > 0) above++; if (d < 0) below++;
   }
@@ -916,6 +943,135 @@ function predStats() {
     met: diffs.filter(d => d >= 0).length,
     pairs, exact, within1, above, below,
   };
+}
+
+/* ================= IBIS "Subject Results" PDF (official predicted grades) =================
+   A separate IBIS report, one subject per page, each row:
+     <predicted grade> <actual grade> <scaled total> <school> <no> (<personal>) - NAME (DIPLOMA|COURSE)
+   We only take the *predicted* grade (col 1) - actuals already come from the
+   results PDF. Rows join to candidates by personal code (then candidate number,
+   then name), exactly like the ADEK template. When this is loaded it is treated
+   as the authoritative source for every per-subject IBIS predicted grade on the
+   page and in the Excel export; the spreadsheet keeps supplying the diploma
+   *total* prediction (this report has no total / core prediction). */
+const RE_IBIS_SUBJECT = /^(.+?)\s+(HL|SL)\s+in\s+.+$/i;
+const RE_IBIS_CAND = /(\d{6})\s+(\d{4})\s*\((\w+)\)\s*-\s*(.+?)\s*\((DIPLOMA|COURSE|RETAKE|ANTICIPATED)\)/i;
+
+async function parseIbisPdf(data, fileName) {
+  const doc = await pdfjsLib.getDocument({ data }).promise;
+  const entries = [];        // { personal, candNo, category, subjName, level, pred }
+  const subjectsSeen = new Set();
+  let pagesWithSubject = 0;
+  for (let p = 1; p <= doc.numPages; p++) {
+    const page = await doc.getPage(p);
+    const tc = await page.getTextContent();
+    const items = tc.items
+      .map(i => ({ str: (i.str || "").trim(), x: i.transform[4], y: Math.round(i.transform[5]) }))
+      .filter(i => i.str);
+    // subject header for this page (single text item like "ENGLISH A: Lang and Lit HL in ENGLISH")
+    let subjName = null, level = null;
+    for (const it of items) {
+      const m = RE_IBIS_SUBJECT.exec(it.str);
+      if (m && !/^\d/.test(it.str) && !/\(DIPLOMA|COURSE|RETAKE|ANTICIPATED\)/i.test(it.str)) {
+        subjName = m[1].trim(); level = m[2].toUpperCase(); break;
+      }
+    }
+    if (!subjName) continue;           // page carried no recognizable subject header
+    pagesWithSubject++;
+    subjectsSeen.add(subjName + "|" + level);
+    // group items into visual rows by y
+    const rows = new Map();
+    for (const it of items) { (rows.get(it.y) || rows.set(it.y, []).get(it.y)).push(it); }
+    for (const line of rows.values()) {
+      line.sort((a, b) => a.x - b.x);
+      const candItem = line.find(it => RE_IBIS_CAND.test(it.str));
+      if (!candItem) continue;
+      const cm = RE_IBIS_CAND.exec(candItem.str);
+      // predicted grade = first 1-7 numeric token left of the candidate block
+      const pg = line.filter(it => it.x < candItem.x).map(it => it.str).find(s => /^[1-7]$/.test(s));
+      if (pg === undefined) continue;  // no numeric predicted grade on this row
+      entries.push({
+        candNo: normCode(cm[2]), personal: (cm[3] || "").toLowerCase(),
+        category: cm[5].toUpperCase(), subjName, level, pred: Number(pg),
+      });
+    }
+  }
+  if (!entries.length)
+    throw new Error("no subject/predicted-grade rows found - is this the IBIS “Subject Results” (predicted vs actual) PDF?");
+  state.ibisPred = { fileName, entries, subjects: [...subjectsSeen], pages: doc.numPages, pagesWithSubject };
+}
+
+/* Reconcile subject names across the two IBIS reports: the results PDF truncates
+   to 30 chars ("...Lang and Literature"), this one shorter ("...Lang and Lit"),
+   so accept an exact match or one being a prefix of the other. Matching is scoped
+   per candidate, so short-prefix collisions between a student's own subjects are
+   effectively impossible. */
+function subjNameMatch(a, b) {
+  const na = normSubjName(a), nb = normSubjName(b);
+  if (na === nb) return true;
+  const short = na.length <= nb.length ? na : nb;
+  const long = na.length <= nb.length ? nb : na;
+  return short.length >= 8 && long.startsWith(short);
+}
+
+function computeIbisPredMatches() {
+  for (const c of state.candidates) { c.ibisPredSubj = null; c.ibisEntries = null; c.ibisPredVia = null; }
+  if (!state.ibisPred || !state.candidates.length) return;
+  // group IBIS entries by personal code, candidate number, and name
+  const byPersonal = new Map(), byNo = new Map(), byName = new Map();
+  for (const e of state.ibisPred.entries) {
+    if (e.personal) (byPersonal.get(e.personal) || byPersonal.set(e.personal, []).get(e.personal)).push(e);
+    if (e.candNo) (byNo.get(e.candNo) || byNo.set(e.candNo, []).get(e.candNo)).push(e);
+  }
+  // name index built from the candidate side is unnecessary; match forward per candidate
+  let matched = 0;
+  for (const c of state.candidates) {
+    let list = c.personalCode ? byPersonal.get(String(c.personalCode).toLowerCase()) : null;
+    let via = list ? "code" : null;
+    if (!list && c.candidateNo) { const hs = byNo.get(normCode(c.candidateNo)); if (hs) { list = hs; via = "code"; } }
+    if (!list || !list.length) continue;
+    matched++;
+    c.ibisPredVia = via;
+    c.ibisEntries = list;
+    // map each IBIS predicted grade onto this candidate's actual subject key
+    const map = new Map();
+    const actuals = state.subjects.filter(s => s.candidateNo === c.candidateNo && s.session === state.session &&
+      !s.additional && (s.level === "HL" || s.level === "SL"));
+    for (const e of list) {
+      const act = actuals.find(s => s.level === e.level && subjNameMatch(s.subjectRaw, e.subjName));
+      const key = act ? normSubjName(act.subjectRaw) + "|" + act.level
+                      : normSubjName(e.subjName) + "|" + e.level;
+      map.set(key, e.pred);
+    }
+    c.ibisPredSubj = map;
+  }
+  state.ibisPred.matched = matched;
+}
+
+/* Is any per-subject predicted-grade source available, and which wins? IBIS PDF
+   (official) takes precedence over the ADEK template for per-subject grades. */
+function hasSubjectPredictions() {
+  return !!state.ibisPred || !!(state.pred && state.pred.hasSubjects);
+}
+function predSourceLabel() {
+  if (state.ibisPred) return `IBIS report (${state.ibisPred.fileName})`;
+  if (state.pred && state.pred.hasSubjects) return `predictions file (${state.pred.fileName})`;
+  return "";
+}
+/* Unified per-subject predicted grade for a candidate + subject entry. */
+function predSubjGrade(c, subjectRaw, level) {
+  const key = normSubjName(subjectRaw) + "|" + level;
+  if (state.ibisPred && c && c.ibisPredSubj && c.ibisPredSubj.has(key)) return c.ibisPredSubj.get(key);
+  if (c && c.pred && c.pred.rec) { const p = c.pred.rec.subj.get(key); return (p === undefined || p === null) ? null : p; }
+  return null;
+}
+/* Does this candidate have any per-subject prediction we can compare against? */
+function candHasPred(c) { return !!(c && ((state.ibisPred && c.ibisPredSubj) || c.pred)); }
+/* "If challenged" comes only from the ADEK template (IBIS report has no IfC). */
+function predSubjIfc(c, subjectRaw, level) {
+  const key = normSubjName(subjectRaw) + "|" + level;
+  if (c && c.pred && c.pred.rec) { const v = c.pred.rec.subjIfc.get(key); return (v === undefined || v === null) ? null : v; }
+  return null;
 }
 
 /* ================= IB subject groups (departments) =================
@@ -1211,21 +1367,34 @@ function pointsHistogram() {
 function subjectSummary() {
   const rows = new Map();
   const nos = cohortNos();
+  const candByNo = new Map(state.candidates.map(c => [c.candidateNo, c]));
   for (const s of state.subjects) {
     if (!nos.has(s.candidateNo)) continue;
     if (s.additional || s.session !== state.session) continue;
     if (s.level !== "HL" && s.level !== "SL") continue;
     const key = s.subjectDisplay + "||" + s.level;
-    if (!rows.has(key)) rows.set(key, { subject: s.subjectDisplay, level: s.level, entries: 0, dist: { 1:0,2:0,3:0,4:0,5:0,6:0,7:0,N:0 } });
+    if (!rows.has(key)) rows.set(key, { subject: s.subjectDisplay, level: s.level, entries: 0,
+      dist: { 1:0,2:0,3:0,4:0,5:0,6:0,7:0,N:0 }, dipSum: 0, dipN: 0, predSum: 0, predN: 0 });
     const r = rows.get(key);
     r.entries++;
     r.dist[s.gradeNumeric !== null ? s.gradeNumeric : "N"]++;
+    // diploma-only accumulators (always exclude COURSE, whatever the toggle says)
+    const c = candByNo.get(s.candidateNo);
+    const isCourse = c && c.category === "COURSE";
+    if (!isCourse && s.gradeNumeric !== null) { r.dipSum += s.gradeNumeric; r.dipN++; }
+    if (!isCourse) {
+      const pg = predSubjGrade(c, s.subjectRaw, s.level);
+      if (pg !== null) { r.predSum += pg; r.predN++; }
+    }
   }
   const out = [...rows.values()];
   for (const r of out) {
     let sum = 0, n = 0;
     for (let g = 1; g <= 7; g++) { sum += g * r.dist[g]; n += r.dist[g]; }
     r.avg = n ? sum / n : null;
+    r.avgDip = r.dipN ? r.dipSum / r.dipN : null;   // average excluding COURSE students
+    r.predAvg = r.predN ? r.predSum / r.predN : null; // average predicted grade (diploma only)
+    r.predDelta = (r.avgDip !== null && r.predAvg !== null) ? r.avgDip - r.predAvg : null;
     r.pct67 = n ? (r.dist[6] + r.dist[7]) / n : null;
     r.pctLow = n ? (r.dist[1] + r.dist[2] + r.dist[3]) / n : null;
   }
@@ -1276,6 +1445,7 @@ function renderAll() {
   renderGradeCharts(); renderFailTable(); renderCandTable();
   renderMasterPanel(); renderGroupPanel(); renderPredPanel(); renderMarketing();
   renderSubjCmp(); renderTop5(); renderStudentRoster(); renderPredPrint();
+  renderCandProfile();
 }
 
 /* ================= What-if disclosure banner =================
@@ -1518,20 +1688,32 @@ function renderSubjectTable() {
     if (typeof av === "string") return dir * av.localeCompare(bv);
     return dir * ((av ?? -1) - (bv ?? -1));
   });
+  const hasPred = hasSubjectPredictions();
+  const predHdr = state.ibisPred ? "IBIS pred avg" : "Pred avg";
+  const predTitle = hasPred ? `Average predicted grade (diploma only) — source: ${predSourceLabel()}`
+    : "Load an IBIS predicted PDF or predictions file to populate";
   const head = [
     ["subject", "Subject"], ["level", "Level"], ["entries", "Entries"],
-    ["avg", "Avg grade"], ["pct67", "% 6–7"], ["pctLow", "% ≤3"],
+    ["avg", "Avg grade"], ["avgDip", "Avg (excl. course)"], ["predAvg", predHdr], ["predDelta", "Δ act−pred"],
+    ["pct67", "% 6–7"], ["pctLow", "% ≤3"],
   ];
+  const numKeys = ["entries","avg","avgDip","predAvg","predDelta","pct67","pctLow"];
   const arrow = k => key === k ? (dir > 0 ? " ▲" : " ▼") : "";
   let html = "<thead><tr>" + head.map(([k, l]) =>
-    `<th class="sortable${["entries","avg","pct67","pctLow"].includes(k) ? " num" : ""}" data-key="${k}">${l}${arrow(k)}</th>`).join("") +
+    `<th class="sortable${numKeys.includes(k) ? " num" : ""}" data-key="${k}"${k === "predAvg" || k === "predDelta" ? ` title="${esc(predTitle)}"` : ""}` +
+    `${k === "avgDip" ? ' title="Average grade with COURSE-category students removed (ignores the Include-COURSE toggle)"' : ""}>${l}${arrow(k)}</th>`).join("") +
     "<th>Grades 1→7</th></tr></thead><tbody>";
   for (const r of rows) {
     const total = r.entries || 1;
     const bar = [1,2,3,4,5,6,7,"N"].map(g =>
       r.dist[g] ? `<span class="g${g}" style="width:${100 * r.dist[g] / total}%" title="grade ${g}: ${r.dist[g]}"></span>` : "").join("");
+    const delta = r.predDelta;
+    const deltaCell = delta === null ? "–"
+      : `<span class="pill ${delta > 0.0005 ? "ok" : (delta < -0.0005 ? "bad" : "mid")}">${delta >= 0 ? "+" : ""}${delta.toFixed(2)}</span>`;
     html += `<tr><td>${esc(r.subject)}</td><td>${r.level}</td><td class="num">${r.entries}</td>` +
-      `<td class="num">${fmt(r.avg, 2)}</td><td class="num">${pct(r.pct67)}</td><td class="num">${pct(r.pctLow)}</td>` +
+      `<td class="num">${fmt(r.avg, 2)}</td><td class="num">${fmt(r.avgDip, 2)}</td>` +
+      `<td class="num">${hasPred ? fmt(r.predAvg, 2) : "–"}</td><td class="num">${hasPred ? deltaCell : "–"}</td>` +
+      `<td class="num">${pct(r.pct67)}</td><td class="num">${pct(r.pctLow)}</td>` +
       `<td><div class="minibar">${bar}</div></td></tr>`;
   }
   $("subjTable").innerHTML = html + "</tbody>";
@@ -1608,6 +1790,133 @@ function renderCandTable() {
     else state.excluded.add(e.target.dataset.cand);
     renderAll();
   }));
+}
+
+/* ================= Candidate profile tab =================
+   A one-student deep-dive: identity, headline results, core, per-subject
+   grades with their IBIS predicted grade (source-aware) and the CAT4 "if
+   challenged" projection, plus masterlist demographics and the diploma-total
+   predictions. Read-only; the what-if exclusion controls stay on the "All
+   candidates" table. Honours the Anonymize toggle for PII. */
+function renderCandProfile() {
+  const sel = $("candProfileSelect"), body = $("candProfileBody");
+  if (!sel || !body) return;
+  if (!state.candidates.length) {
+    sel.innerHTML = ""; body.innerHTML = ""; $("candProfileSub").textContent = "";
+    return;
+  }
+  const q = ($("candProfileSearch").value || "").toLowerCase();
+  const match = c => !q || (c.name || "").toLowerCase().includes(q) ||
+    (c.candidateNo || "").includes(q) || (c.personalCode || "").toLowerCase().includes(q);
+  const opts = state.candidates.filter(match);
+  const pool = opts.length ? opts : state.candidates;
+  if (!state.candView || !pool.some(c => c.candidateNo === state.candView))
+    state.candView = pool[0].candidateNo;
+  sel.innerHTML = pool.map(c =>
+    `<option value="${esc(c.candidateNo)}"${c.candidateNo === state.candView ? " selected" : ""}>` +
+    `${esc(c.candidateNo)} — ${esc(candLabel(c))}${c.category && c.category !== "DIPLOMA" ? ` (${esc(c.category)})` : ""}</option>`).join("");
+  sel.value = state.candView;
+  $("candProfileSub").textContent = opts.length
+    ? `— ${pool.length} candidate${pool.length === 1 ? "" : "s"}${q ? " matching" : ""}`
+    : `— no match for “${q}”; showing all`;
+  const c = state.candidates.find(x => x.candidateNo === state.candView);
+  body.innerHTML = c ? candProfileHtml(c) : "";
+}
+
+function candProfileHtml(c) {
+  const anon = state.anonymize;
+  const stat = (k, v) => `<div class="cp-stat"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+  const excluded = c.candidateNo && state.excluded.has(c.candidateNo);
+  const resultPill = c.result === "Diploma not awarded" ? "bad" : (c.result ? "ok" : "mid");
+
+  // identity
+  const idBits = [];
+  idBits.push(`<b>Candidate #</b> ${esc(c.candidateNo || "–")}`);
+  if (!anon && c.personalCode) idBits.push(`<b>Personal code</b> ${esc(c.personalCode)}`);
+  idBits.push(`<b>Category</b> ${esc(c.category || "–")}`);
+  idBits.push(`<b>Session</b> ${esc(c.session || state.session || "–")}`);
+  if (!anon && c.birthDate) idBits.push(`<b>Born</b> ${esc(c.birthDate)}`);
+
+  // headline stats
+  const cards = [];
+  cards.push(stat("Total points", c.totalPoints !== null && c.totalPoints !== undefined ? `${c.totalPoints}<small>/45</small>` : "–"));
+  cards.push(stat("Result", `<span class="pill ${resultPill}" style="font-size:13px">${esc(c.result || "course only")}</span>`));
+  cards.push(stat("HL / SL", `${c.hlCount ?? 0} <small>/ ${c.slCount ?? 0}</small>`));
+  cards.push(stat("EE / TOK core", c.eeTokPoints !== null && c.eeTokPoints !== undefined ? `${c.eeTokPoints}<small>/3</small>` : "–"));
+  cards.push(stat("CAS", c.casSatisfied ? "✓ met" : (c.casRaw ? "✗ not met" : "–")));
+
+  // per-subject grades vs predicted
+  const subs = candMainSubjects(c);
+  const anyPred = hasSubjectPredictions();
+  const anyIfc = subs.some(s => predSubjIfc(c, s.subjectRaw, s.level) !== null);
+  let subjRows = "";
+  for (const s of subs) {
+    const pred = predSubjGrade(c, s.subjectRaw, s.level);
+    const ifc = predSubjIfc(c, s.subjectRaw, s.level);
+    const d = (pred !== null && s.gradeNumeric !== null) ? s.gradeNumeric - pred : null;
+    const dCell = d === null ? "–"
+      : `<span class="pill ${d > 0 ? "ok" : (d < 0 ? "bad" : "mid")}">${d >= 0 ? "+" : ""}${d}</span>`;
+    subjRows += `<tr><td>${esc(s.subjectDisplay)}</td><td>${s.level}</td>` +
+      `<td class="num">${esc(s.grade)}</td>` +
+      (anyPred ? `<td class="num">${pred ?? "–"}</td><td class="num">${dCell}</td>` : "") +
+      (anyIfc ? `<td class="num">${ifc ?? "–"}</td>` : "") +
+      `</tr>`;
+  }
+  if (!subs.length) subjRows = `<tr><td colspan="${2 + (anyPred ? 2 : 0) + (anyIfc ? 1 : 0)}">No subject rows on record.</td></tr>`;
+  const subjHead = `<tr><th>Subject</th><th>Level</th><th class="num">Actual</th>` +
+    (anyPred ? `<th class="num">Predicted</th><th class="num">Δ</th>` : "") +
+    (anyIfc ? `<th class="num">If challenged</th>` : "") + `</tr>`;
+
+  // core
+  const core = [];
+  if (c.eeGrade) core.push(`<b>Extended Essay</b> ${esc(c.eeGrade)}${c.eeSubject ? ` (${esc(c.eeSubject)})` : ""}`);
+  if (c.tokGrade) core.push(`<b>Theory of Knowledge</b> ${esc(c.tokGrade)}`);
+  if (c.eeTokPoints !== null && c.eeTokPoints !== undefined) core.push(`<b>EE/TOK points</b> ${c.eeTokPoints}/3`);
+  if (c.failReason) core.push(`<b>Not-awarded reason</b> ${esc(c.failReason)}`);
+
+  // demographics (masterlist)
+  const demo = [];
+  if (state.master) {
+    const mrec = c.match && c.match.student;
+    if (c.gender && c.gender !== "Unknown") demo.push(`<b>Gender</b> ${esc(c.gender)}`);
+    if (mrec && mrec.nationality) demo.push(`<b>Nationality</b> ${esc(mrec.nationality)}`);
+    if (c.emirati && c.emirati !== "Unknown") demo.push(`<b>Emirati</b> ${esc(c.emirati)}`);
+    if (mrec && mrec.yearLevel) demo.push(`<b>Year level</b> ${esc(mrec.yearLevel)}`);
+  }
+
+  // diploma-total predictions (spreadsheet) + source note
+  const predBits = [];
+  const rec = c.pred && c.pred.rec;
+  if (rec) {
+    if (rec.ibis !== null && rec.ibis !== undefined) {
+      const d = (c.totalPoints !== null && c.totalPoints !== undefined) ? c.totalPoints - rec.ibis : null;
+      predBits.push(`<b>IBIS predicted total</b> ${rec.ibis}${d !== null ? ` (actual ${d >= 0 ? "+" : ""}${d})` : ""}`);
+    }
+    if (rec.univ !== null && rec.univ !== undefined) predBits.push(`<b>University predicted</b> ${rec.univ}`);
+    if (rec.cat4 !== null && rec.cat4 !== undefined) predBits.push(`<b>CAT4 predicted</b> ${rec.cat4}`);
+    if (rec.cat4ifc !== null && rec.cat4ifc !== undefined) predBits.push(`<b>CAT4 if challenged</b> ${rec.cat4ifc}`);
+  }
+  const srcNotes = [];
+  if (state.ibisPred) srcNotes.push(`Subject predicted grades: <b>IBIS report</b>${c.ibisPredVia ? "" : " — <i>this candidate not matched in it</i>"}`);
+  else if (state.pred && state.pred.hasSubjects) srcNotes.push(`Subject predicted grades: predictions file`);
+  if (rec) srcNotes.push(`Totals matched via ${c.pred.via === "code" ? "IB/personal code" : "name"}`);
+
+  return `
+    ${excluded ? `<div style="background:#f7e3e1;border:1px solid #e0b4af;border-radius:8px;padding:8px 12px;color:var(--bad);font-weight:600;margin-bottom:10px;">This candidate is currently excluded from statistics (what-if view).</div>` : ""}
+    <div style="font-size:22px;font-weight:800;color:var(--slate,#344042);margin-bottom:4px;">${esc(candLabel(c))}</div>
+    <div class="cp-meta">${idBits.join(" &nbsp;·&nbsp; ")}</div>
+    <div class="cp-grid">${cards.join("")}</div>
+
+    <div class="cp-sec">Subjects</div>
+    <div class="scroll-y"><table>${subjHead}${subjRows}</table></div>
+    ${anyPred ? `<div style="font-size:11.5px;color:var(--muted);margin-top:4px;">Predicted grade source: ${esc(predSourceLabel())}. Δ = actual − predicted.</div>` : ""}
+
+    ${core.length ? `<div class="cp-sec">Core</div><div class="cp-meta">${core.join("<br>")}</div>` : ""}
+    ${demo.length ? `<div class="cp-sec">Profile (masterlist)</div><div class="cp-meta">${demo.join(" &nbsp;·&nbsp; ")}</div>` : ""}
+    ${(predBits.length || srcNotes.length) ? `<div class="cp-sec">Predictions</div>
+      ${predBits.length ? `<div class="cp-meta">${predBits.join(" &nbsp;·&nbsp; ")}</div>` : ""}
+      ${srcNotes.length ? `<div style="font-size:11.5px;color:var(--muted);">${srcNotes.join(" &nbsp;·&nbsp; ")}</div>` : ""}` : ""}
+  `;
 }
 
 /* ================= Masterlist panels ================= */
@@ -1965,20 +2274,18 @@ function renderPredPanel() {
    − predicted. Subjects the template didn't predict are flagged, never dropped. */
 function subjCmpRows() {
   const rows = [];
-  if (!state.pred) return rows;
+  if (!hasSubjectPredictions()) return rows;
   const candByNo = new Map(activeCandidates().map(c => [c.candidateNo, c]));
   for (const s of currentSubjects()) {
     const c = candByNo.get(s.candidateNo);
-    if (!c || !c.pred) continue;               // student not in the predictions template
-    const key = normSubjName(s.subjectRaw) + "|" + s.level;
-    const p = c.pred.rec.subj.get(key);
-    const ifc = c.pred.rec.subjIfc.get(key);
-    const pred = (p === undefined || p === null) ? null : p;
+    if (!candHasPred(c)) continue;             // student has no predicted-grade source
+    const pred = predSubjGrade(c, s.subjectRaw, s.level);
+    const ifc = predSubjIfc(c, s.subjectRaw, s.level);
     rows.push({
       candNo: c.candidateNo, student: candLabel(c), category: c.category,
       subject: s.subjectDisplay, level: s.level,
       actual: s.gradeNumeric, actualGrade: s.grade,
-      pred, ifc: (ifc === undefined || ifc === null) ? null : ifc,
+      pred, ifc,
       diff: pred === null ? null : s.gradeNumeric - pred,
     });
   }
@@ -1993,13 +2300,14 @@ function renderSubjCmp() {
     $("subjCmpControls").classList.add("hidden"); $("subjCmpSub").textContent = "";
     return;
   }
-  if (!state.pred) {
+  if (!hasSubjectPredictions()) {
     $("subjCmpControls").classList.add("hidden");
     $("subjCmpSub").textContent = "";
     $("subjCmpEmpty").innerHTML =
-      `<p>Load the ADEK <b>IB Data Template</b> (predictions workbook) to compare every student&rsquo;s ` +
-      `subject grades against their IBIS predicted grades. Use <b>Load predictions&hellip;</b> in the toolbar, ` +
-      `or drop the file onto the page. Nothing is uploaded &mdash; it is parsed in this browser tab.</p>`;
+      `<p>Load the IBIS <b>&ldquo;Subject Results&rdquo;</b> PDF (official predicted grades) via ` +
+      `<b>Load IBIS predicted&hellip;</b>, or the ADEK <b>IB Data Template</b> via <b>Load predictions&hellip;</b>, ` +
+      `to compare every student&rsquo;s subject grades against their IBIS predicted grades. ` +
+      `Nothing is uploaded &mdash; files are parsed in this browser tab.</p>`;
     $("subjCmpCoverage").innerHTML = ""; $("subjCmpSummary").innerHTML = ""; $("subjCmpTable").innerHTML = "";
     return;
   }
@@ -2021,10 +2329,10 @@ function renderSubjCmp() {
   const rows = all.filter(r => (fSub === "ALL" || r.subject === fSub) && (fLev === "ALL" || r.level === fLev));
   const filtered = fSub !== "ALL" || fLev !== "ALL";
 
-  // coverage: how many students the template actually covers
+  // coverage: how many students the predicted-grade source actually covers
   const cohortCands = activeCandidates().filter(inCohort);
-  const matchedCands = cohortCands.filter(c => c.pred).length;
-  $("subjCmpSub").textContent = ` — ${state.pred.fileName} · ${matchedCands}/${cohortCands.length} ${cohortLabel()} students matched`;
+  const matchedCands = cohortCands.filter(candHasPred).length;
+  $("subjCmpSub").textContent = ` — ${predSourceLabel()} · ${matchedCands}/${cohortCands.length} ${cohortLabel()} students matched`;
   const ratio = cohortCands.length ? matchedCands / cohortCands.length : 0;
   $("subjCmpCoverage").innerHTML = ratio < 0.5
     ? `<div style="background:#f7e3e1;border:1px solid #e0b4af;border-radius:8px;padding:10px 12px;color:var(--bad);font-weight:600;margin-bottom:8px;">
@@ -2428,23 +2736,30 @@ function exportExcel() {
           r ? r.univ : "", r ? r.cat4 : "", r ? r.cat4ifc : "",
           c.pred ? (c.pred.via === "code" ? "IB code" : "Name") : "Not found"];
       }));
-    if (state.pred.hasSubjects) {
-      const srows = [];
-      for (const s of state.subjects) {
-        if (s.additional || s.session !== state.session || s.gradeNumeric === null) continue;
-        const c = state.candidates.find(x => x.candidateNo === s.candidateNo);
-        const r = c && c.pred && c.pred.rec;
-        const key = normSubjName(s.subjectRaw) + "|" + s.level;
-        const p = r ? r.subj.get(key) : undefined;
-        const ifc = r ? r.subjIfc.get(key) : undefined;
-        if ((p === undefined || p === null) && (ifc === undefined || ifc === null)) continue;
-        srows.push([s.candidateNo, s.name, s.subjectDisplay, s.level, s.gradeNumeric,
-          p ?? "", (p === undefined || p === null) ? "" : s.gradeNumeric - p,
-          ifc ?? "", (ifc === undefined || ifc === null) ? "" : s.gradeNumeric - ifc]);
-      }
-      sheet("Predicted Subjects",
-        ["Candidate No", "Name", "Subject", "Level", "Actual", "Predicted", "Diff", "If Challenged", "Diff vs IfC"], srows);
+  }
+
+  // Per-subject predicted vs actual. Predicted grades come from the IBIS PDF when
+  // loaded (authoritative), otherwise the ADEK template; "If Challenged" is
+  // template-only. Emitted whenever any per-subject source is present.
+  if (hasSubjectPredictions()) {
+    const candByNo = new Map(state.candidates.map(c => [c.candidateNo, c]));
+    const srcTag = state.ibisPred ? "IBIS PDF" : "Predictions file";
+    const srows = [];
+    for (const s of state.subjects) {
+      if (s.additional || s.session !== state.session || s.gradeNumeric === null) continue;
+      const c = candByNo.get(s.candidateNo);
+      const p = predSubjGrade(c, s.subjectRaw, s.level);
+      const ifc = predSubjIfc(c, s.subjectRaw, s.level);
+      if (p === null && ifc === null) continue;
+      // which source actually supplied this grade
+      const key = normSubjName(s.subjectRaw) + "|" + s.level;
+      const src = (state.ibisPred && c && c.ibisPredSubj && c.ibisPredSubj.has(key)) ? "IBIS PDF" : "Predictions file";
+      srows.push([s.candidateNo, s.name, s.subjectDisplay, s.level, s.gradeNumeric,
+        p ?? "", p === null ? "" : s.gradeNumeric - p,
+        ifc ?? "", ifc === null ? "" : s.gradeNumeric - ifc, p === null ? "" : src]);
     }
+    sheet("Predicted Subjects",
+      ["Candidate No", "Name", "Subject", "Level", "Actual", "Predicted", "Diff", "If Challenged", "Diff vs IfC", "Predicted Source"], srows);
   }
 
   sheet("Headliners", ["Ready-to-paste headline"], buildSnippets(c => c.name).map(t => [t]), false);
@@ -2520,6 +2835,7 @@ async function handleFile(file) {
     await parsePdf(new Uint8Array(buf), file.name);
     computeMatches();
     computePredMatches();
+    computeIbisPredMatches();
     autoWorldAvg();
     $("dropzone").classList.add("hidden");
     $("dashboard").classList.remove("hidden");
@@ -2528,6 +2844,33 @@ async function handleFile(file) {
   } catch (err) {
     console.error(err);
     showProgress("Could not parse that file: " + err.message);
+  }
+}
+
+/* The IBIS "Subject Results" PDF has its own button so it is never confused
+   with the main results PDF. It does NOT reset state - it layers official
+   predicted grades onto the already-loaded candidates. Works before the
+   results PDF too (parked until it loads, like the predictions file). */
+async function handleIbisFile(file) {
+  if (!file) return;
+  const setMsg = m => {
+    if ($("dashboard").classList.contains("hidden")) showProgress(m); else $("statusLine").textContent = m;
+  };
+  try {
+    const buf = new Uint8Array(await file.arrayBuffer());
+    await parseIbisPdf(buf, file.name);
+    if (state.candidates.length) {
+      computeIbisPredMatches();
+      renderAll();
+      const m = state.ibisPred.matched || 0;
+      setMsg(`IBIS predicted "${file.name}" loaded — ${state.ibisPred.entries.length} predicted grades across ` +
+        `${state.ibisPred.subjects.length} subjects, matched to ${m} candidate(s).`);
+    } else {
+      setMsg(`IBIS predicted "${file.name}" loaded (${state.ibisPred.entries.length} grades). Now drop the results PDF.`);
+    }
+  } catch (err) {
+    console.error(err);
+    setMsg(`Could not use "${file.name}": ${err.message}`);
   }
 }
 
@@ -2585,28 +2928,37 @@ $("btnMaster").addEventListener("click", () => $("masterInput").click());
 $("masterInput").addEventListener("change", e => { handleSheetFile(e.target.files[0]); e.target.value = ""; });
 $("btnPred").addEventListener("click", () => $("predInput").click());
 $("predInput").addEventListener("change", e => { handleSheetFile(e.target.files[0]); e.target.value = ""; });
+$("btnIbis").addEventListener("click", () => $("ibisInput").click());
+$("ibisInput").addEventListener("change", e => { handleIbisFile(e.target.files[0]); e.target.value = ""; });
 function setView(v) {
   state.view = v;
   document.body.classList.toggle("mkt", v === "mkt");
   document.body.classList.toggle("subjcmp", v === "subjcmp");
+  document.body.classList.toggle("candview", v === "cand");
   $("tabDash").classList.toggle("active", v === "dash");
   $("tabMkt").classList.toggle("active", v === "mkt");
   $("tabSubjCmp").classList.toggle("active", v === "subjcmp");
+  $("tabCand").classList.toggle("active", v === "cand");
+  if (v === "cand") renderCandProfile();
 }
 $("tabDash").addEventListener("click", () => setView("dash"));
 $("tabMkt").addEventListener("click", () => setView("mkt"));
 $("tabSubjCmp").addEventListener("click", () => setView("subjcmp"));
+$("tabCand").addEventListener("click", () => setView("cand"));
+$("candProfileSearch").addEventListener("input", () => renderCandProfile());
+$("candProfileSelect").addEventListener("change", e => { state.candView = e.target.value; renderCandProfile(); });
 $("subjCmpSubject").addEventListener("change", e => { state.subjCmpSubject = e.target.value; renderSubjCmp(); });
 $("subjCmpLevel").addEventListener("change", e => { state.subjCmpLevel = e.target.value; renderSubjCmp(); });
 $("btnReset").addEventListener("click", () => {
   $("dashboard").classList.add("hidden");
   $("dropzone").classList.remove("hidden");
   $("fileInput").value = "";
-  const kept = [state.master && `masterlist "${state.master.fileName}"`, state.pred && `predictions "${state.pred.fileName}"`]
-    .filter(Boolean).join(" and ");
+  const kept = [state.master && `masterlist "${state.master.fileName}"`, state.pred && `predictions "${state.pred.fileName}"`,
+    state.ibisPred && `IBIS predicted "${state.ibisPred.fileName}"`]
+    .filter(Boolean).join(", ");
   showProgress(kept ? `Loaded ${kept} will be matched to the next PDF.` : "");
 });
-$("anonToggle").addEventListener("change", e => { state.anonymize = e.target.checked; renderAdjusted(); renderHighlights(); renderFailTable(); renderCandTable(); renderMasterPanel(); renderPredPanel(); renderMarketing(); renderSubjCmp(); renderTop5(); renderStudentRoster(); renderPredPrint(); });
+$("anonToggle").addEventListener("change", e => { state.anonymize = e.target.checked; renderAdjusted(); renderHighlights(); renderFailTable(); renderCandTable(); renderMasterPanel(); renderPredPanel(); renderMarketing(); renderSubjCmp(); renderTop5(); renderStudentRoster(); renderPredPrint(); renderCandProfile(); });
 // Cohort toggle changes every statistic at once, so re-render everything.
 $("courseToggle").addEventListener("change", e => { state.includeCourse = e.target.checked; renderAll(); });
 $("btnExclRetakes").addEventListener("click", () => {
